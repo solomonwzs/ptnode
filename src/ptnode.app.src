@@ -1,0 +1,12 @@
+{application, ptnode,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { ptnode_app, []}},
+  {env, []}
+ ]}.
