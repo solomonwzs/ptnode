@@ -1,31 +1,31 @@
 -module(ptnode_master_accepter).
 
--export([start_link/1]).
--export([loop/1]).
+-include("ptnode.hrl").
 
--if(?OTP_RELEASE =:= 21).
--define(ssl_accept(Socket), ssl:handshake(Socket)).
--else.
--define(ssl_accept(Socket), ssl:ssl_accept(Socket)).
--endif.
+-export([start_link/3]).
+-export([loop/3]).
 
 
-start_link(Opts) ->
-    Port = proplists:get_value(port, Opts),
-    CertFile = proplists:get_value(certfile, Opts),
-    KeyFile = proplists:get_value(keyfile, Opts),
-    {ok, ListenSocket} = ssl:listen(
-                           Port, [{certfile, CertFile},
-                                  {keyfile, KeyFile},
-                                  {reuseaddr, true}]),
-    Pid = spawn_link(?MODULE, loop, [ListenSocket]),
+start_link(SupRef, ListenSocket, ProtoModule) ->
+    Pid = spawn_link(?MODULE, loop, [SupRef, ListenSocket, ProtoModule]),
     {ok, Pid}.
 
 
-loop(ListenSocket) ->
-    {ok, Socket} = ssl:transport_accept(ListenSocket),
-    case ?ssl_accept(Socket) of
-        ok -> ok;
-        _ -> ok
+loop(MasterSupRef, ListenSocket, ProtoModule) ->
+    case ProtoModule:accept(ListenSocket) of
+        {ok, SslSocket} ->
+            Child = supervisor:which_children(MasterSupRef),
+            ?dlog("~p~n", [Child]),
+            handle(SslSocket);
+        Err -> ?dlog("~p~n", [Err])
     end,
-    loop(ListenSocket).
+    loop(MasterSupRef, ListenSocket, ProtoModule).
+
+
+handle(SslSocket) ->
+    receive
+        Msg ->
+            ?dlog("~p~n", [Msg]),
+            ssl:setopts(SslSocket, [{active, once}]),
+            handle(SslSocket)
+    end.

@@ -12,7 +12,6 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    ssl:start(),
     ptnode_sup:start_link().
 
 stop(_State) ->

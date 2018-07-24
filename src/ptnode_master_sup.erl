@@ -2,20 +2,24 @@
 
 -behaviour(supervisor).
 
--export([start_link/2]).
+-export([start_link/3]).
 -export([init/1]).
 
-
-start_link(Name, Opts) ->
-    supervisor:start_link({local, Name}, ?MODULE, [Opts]).
+-define(ACCEPTER_SUP, ptnode_master_accepter_sup).
 
 
-init([Opts]) ->
-    Accepter = {ptnode_master_accepter,
-                {ptnode_master_accepter, start_link, [Opts]},
-                permanent,
-                5000,
-                worker,
-                dynamic},
-    {ok, {{one_for_one, 5, 10},
-          [Accepter]}}.
+-spec(start_link(atom(), atom(), map())
+      -> supervisor:startlink_ret()).
+start_link(Name, ProtoModule, Opts) ->
+    supervisor:start_link({local, Name}, ?MODULE, [ProtoModule, Opts]).
+
+
+init([ProtoModule, Opts]) ->
+    AccepterSup = {
+      accepter_sup,
+      {?ACCEPTER_SUP, start_link, [self(), ProtoModule, Opts]},
+      permanent,
+      5000,
+      worker,
+      [?ACCEPTER_SUP]},
+    {ok, {{one_for_one, 5, 10}, [AccepterSup]}}.
