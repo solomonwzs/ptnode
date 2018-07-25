@@ -6,17 +6,19 @@
 -export([init/1]).
 
 
-start_link(MasterSupRef, ProtoModule, Opts) ->
-    supervisor:start_link(?MODULE, [MasterSupRef, ProtoModule, Opts]).
+start_link(MasterSupRef, ProtoSpec, AccepterOpts) ->
+    supervisor:start_link(?MODULE, [MasterSupRef, ProtoSpec, AccepterOpts]).
 
 
-init([MasterSupRef, ProtoModule, Opts]) ->
-    NumAcceptors = maps:get(num_acceptors, Opts, 10),
-    {ok, ListenSocket} = ProtoModule:listen(Opts),
+init([MasterSupRef,
+      Spec = {ProtoModule, Port, ListenOpts, _, _},
+      AccepterOpts]) ->
+    NumAcceptors = maps:get(num_acceptors, AccepterOpts, 10),
+    {ok, ListenSocket} = ProtoModule:listen(Port, ListenOpts),
     Accepters = [{
       {accepter, N},
       {ptnode_master_accepter, start_link,
-       [MasterSupRef, ListenSocket, ProtoModule]},
+       [MasterSupRef, ListenSocket, Spec]},
       permanent,
       5000,
       worker,
