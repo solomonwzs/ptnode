@@ -7,10 +7,12 @@
          accept/2,
          handshake/2,
          close/1,
-         controlling_process/2
+         controlling_process/2,
+         setopts/2,
+         parse_message/1
         ]).
 
--if(?OTP_RELEASE =:= 21).
+-ifdef(OTP_RELEASE).
 -define(ssl_handshake(Socket, Opts), ssl:handshake(Socket, Opts, infinity)).
 -else.
 -define(ssl_handshake(Socket, Opts), handshake0(Socket, Opts)).
@@ -34,10 +36,7 @@ accept(ListenSocket, _) ->
 
 
 handshake(Socket, Opts) ->
-    case ?ssl_handshake(Socket, Opts) of
-        {ok, SslSocket} -> {ok, SslSocket, undefined};
-        Err = {error, _} -> Err
-    end.
+    ?ssl_handshake(Socket, Opts).
 
 
 close(Socket) ->
@@ -46,3 +45,13 @@ close(Socket) ->
 
 controlling_process(Socket, Pid) ->
     ssl:controlling_process(Socket, Pid).
+
+
+setopts(Socket, Opts) ->
+    ssl:setopts(Socket, Opts).
+
+
+parse_message({ssl, _Socket, Data}) -> {ok, Data};
+parse_message({ssl_closed, _Socket}) -> close;
+parse_message({ssl_error, _Socket, Reason}) -> {error, Reason};
+parse_message(_) -> ignore.

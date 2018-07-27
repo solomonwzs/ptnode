@@ -6,7 +6,7 @@
 
 -define(dlog(Format, Args),
         io:format(
-          lists:append("\033[0;33m~s ~p [~s:~p]~n\033[0m", Format),
-          lists:append([?DATETIME_RFC3339, self(), ?FILE, ?LINE], Args))).
+          lists:append("\033[0;33m~p [~s:~p]~n\033[0m", Format),
+          lists:append([self(), ?FILE, ?LINE], Args))).
 
 -endif.

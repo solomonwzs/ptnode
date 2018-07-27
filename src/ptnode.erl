@@ -2,7 +2,7 @@
 
 -include("ptnode.hrl").
 
--export([start/0]).
+-export([start/0, stop/0]).
 -export([start_master/4, stop_master/1]).
 -export([foo/0]).
 
@@ -11,9 +11,7 @@ foo() ->
     ProtoSpec = {
       ptnode_proto_ssl,
       9998,
-      [% {active, once},
-       {reuseaddr, true},
-       {certfile, "./priv/example-pem/cert.pem"},
+      [{certfile, "./priv/example-pem/cert.pem"},
        {keyfile, "./priv/example-pem/key.pem"}
       ],
       [],
@@ -30,14 +28,18 @@ start() ->
     application:start(ptnode).
 
 
--spec(start_master(atom(), ptnode_proto:proto_spec(), map(), atom())
+stop() ->
+    application:stop(ptnode).
+
+
+-spec(start_master(atom(), emq_rf_node_proto:proto_spec(), map(), atom())
       -> {ok, pid()} | {error, any}).
-start_master(Name, ProtoSpec, AccepterOpts, Serv) ->
+start_master(Name, ProtoSpec, AccepterOpts, ServModule) ->
     supervisor:start_child(
       ptnode_sup,
       {{master, Name},
        {ptnode_master_sup, start_link,
-        [Name, ProtoSpec, AccepterOpts, Serv]},
+        [Name, ProtoSpec, AccepterOpts, ServModule]},
        permanent,
        5000,
        supervisor,

@@ -3,9 +3,6 @@
 -type socket() :: ssl:sslsocket().
 -export_type([socket/0]).
 
--type conn_state() :: any().
--export_type([conn_state/0]).
-
 -type proto_spec() :: {
         ProtocolModule::atom(),
         Port:: integer(),
@@ -24,9 +21,18 @@
     {ok, socket()} | {error, any()}.
 
 -callback handshake(Socket::socket(), Options::any()) ->
-    {ok, socket(), conn_state()} | {error, any()}.
+    {ok, socket()} | {error, any()}.
 
 -callback close(Socket::socket()) -> ok | {error, any()}.
 
 -callback controlling_process(Socket::socket(), pid()) ->
     ok | {error, any()}.
+
+-callback setopts(Socket::socket(), Options::any()) ->
+    ok | {error, any()}.
+
+-callback parse_message(Message::any()) ->
+    {ok, Data::any} |
+    {error, Reason::any} |
+    ignore |
+    close.

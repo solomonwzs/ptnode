@@ -6,15 +6,15 @@
 -export([init/1]).
 
 
-start_link(Serv) ->
-    supervisor:start_link(?MODULE, [Serv]).
+start_link(ServModule) ->
+    supervisor:start_link(?MODULE, [ServModule]).
 
 
-init([Serv]) ->
+init([ServModule]) ->
     ServSpec = {serv,
-                {Serv, start_link, []},
+                {ptnode_master_server, start_link, [ServModule]},
                 temporary,
                 5000,
                 worker,
-                [Serv]},
+                [ptnode_master_server]},
     {ok, {{simple_one_for_one, 5, 10}, [ServSpec]}}.

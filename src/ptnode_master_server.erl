@@ -4,7 +4,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/3]).
+-export([start_link/4]).
 -export([init/1,
          handle_call/3,
          handle_cast/2,
@@ -16,25 +16,39 @@
         ]).
 
 -record(state, {
-          conn_state::any(),
-          socket::ptnode_proto:socket(),
-          protocol_module::atom()
+          master_sup        ::supervisor:sup_ref(),
+          conn_state        ::any(),
+          socket            ::ptnode_proto:socket(),
+          server_module     ::atom(),
+          protocol_module   ::atom()
          }).
 
 
-start_link(Socket, ProtoModule, ConnState) ->
-    gen_server:start_link(?MODULE, [Socket, ProtoModule, ConnState], []).
+%% behaviour callback
+-callback init() -> {ok, State::any()} | {error, Reason::any()}.
+%%
 
 
-init([Socket, ProtoModule, ConnState]) ->
-    ?dlog("~p~n", [Socket]),
+start_link(ServModule, MasterSupRef, Socket, ProtoModule) ->
+    gen_server:start_link(
+      ?MODULE, [ServModule, MasterSupRef, Socket, ProtoModule], []).
+
+
+init([ServModule, MasterSupRef, Socket, ProtoModule]) ->
+    ?dlog("~p~n", [ServModule]),
     {ok, #state{
-            conn_state = ConnState,
+            master_sup = MasterSupRef,
             socket = Socket,
+            server_module = ServModule,
             protocol_module = ProtoModule
            }}.
 
 
+handle_call('$active_socket', _From, State = #state{
+                                             protocol_module = ProtoModule,
+                                             socket = Socket}) ->
+    R = ProtoModule:setopts(Socket, [{active, true}]),
+    {reply, R, State};
 handle_call(_Req, _From, State) ->
     {reply, undefined, State}.
 
@@ -43,11 +57,23 @@ handle_cast(_Req, State) ->
     {noreply, State}.
 
 
-handle_info(stop, State) ->
+handle_info('$stop', State) ->
     {stop, normal, State};
-handle_info(_Info, State) ->
-    ?dlog("~p~n", [_Info]),
-    {noreply, State}.
+handle_info(Message, State = #state{
+                              protocol_module = ProtoModule
+                             }) ->
+    case ProtoModule:parse_message(Message) of
+        {ok, Data} ->
+            ?dlog("~p~n", [Data]),
+            {noreply, State};
+        {error, Reason} ->
+            ?dlog("~p~n", [Reason]),
+            {noreply, Reason, State};
+        close ->
+            {stop, normal, State};
+        _ ->
+            {noreply, State}
+    end.
 
 
 handle_continue(_Continue, State) ->

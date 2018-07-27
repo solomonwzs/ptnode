@@ -17,7 +17,8 @@ loop(MasterSupRef, ListenSocket, Spec) ->
 
 
 accept(MasterSupRef, ListenSocket,
-       Spec = {ProtoModule, _, _, AccepterOpts, _}) ->
+       Spec = {ProtoModule, _, _, AccepterOpts0, _}) ->
+    AccepterOpts = AccepterOpts0 ++ [{active, false}, {reuseaddr, true}],
     case ProtoModule:accept(ListenSocket, AccepterOpts) of
         {ok, SslSocket} ->
             handshake(MasterSupRef, SslSocket, Spec);
@@ -27,29 +28,30 @@ accept(MasterSupRef, ListenSocket,
 
 handshake(MasterSupRef, SslSocket, {ProtoModule, _, _, _, HandshakeOpts}) ->
     case ProtoModule:handshake(SslSocket, HandshakeOpts) of
-        {ok, Socket, ConnState} ->
-            get_conn_sup(MasterSupRef, Socket, ProtoModule, ConnState);
+        {ok, Socket} ->
+            get_conn_sup(MasterSupRef, Socket, ProtoModule);
         Err ->
             ?dlog("~p~n", [Err]),
             ProtoModule:close(SslSocket)
     end.
 
 
-get_conn_sup(MasterSupRef, Socket, ProtoModule, ConnState) ->
+get_conn_sup(MasterSupRef, Socket, ProtoModule) ->
     case ptnode_master_sup:get_conn_sup(MasterSupRef) of
         {ok, SupRef} ->
-            start_conn_server(SupRef, Socket, ProtoModule, ConnState);
+            start_conn_server(MasterSupRef, SupRef, Socket, ProtoModule);
         Err ->
             ?dlog("~p~n", [Err]),
             ProtoModule:close(Socket)
     end.
 
 
-start_conn_server(SupRef, Socket, ProtoModule, ConnState) ->
-    case supervisor:start_child(SupRef, [Socket, ProtoModule, ConnState]) of
+start_conn_server(MasterSupRef, SupRef, Socket, ProtoModule) ->
+    case supervisor:start_child(
+           SupRef, [MasterSupRef, Socket, ProtoModule]) of
         {ok, Ref} when is_pid(Ref) ->
             case ProtoModule:controlling_process(Socket, Ref) of
-                ok -> ok;
+                ok -> active_socket(Ref);
                 Err ->
                     ?dlog("~p~n", [Err]),
                     ProtoModule:close(Socket)
@@ -60,10 +62,10 @@ start_conn_server(SupRef, Socket, ProtoModule, ConnState) ->
     end.
 
 
-% handle(SslSocket) ->
-%     receive
-%         Msg ->
-%             ?dlog("~p~n", [Msg]),
-%             ssl:setopts(SslSocket, [{active, once}]),
-%             handle(SslSocket)
-%     end.
+active_socket(Ref) ->
+    case gen_server:call(Ref, '$active_socket') of
+        ok -> ok;
+        Err ->
+            ?dlog("~p~n", [Err]),
+            Ref ! '$stop'
+    end.
