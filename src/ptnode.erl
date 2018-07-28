@@ -4,23 +4,6 @@
 
 -export([start/0, stop/0]).
 -export([start_master/4, stop_master/1]).
--export([foo/0]).
-
-
-foo() ->
-    ProtoSpec = {
-      ptnode_proto_ssl,
-      9998,
-      [{certfile, "./priv/example-pem/cert.pem"},
-       {keyfile, "./priv/example-pem/key.pem"}
-      ],
-      [],
-      []
-     },
-    AccepterOpts = #{
-      num_acceptors => 1
-     },
-    start_master(name, ProtoSpec, AccepterOpts, ptnode_master_server).
 
 
 start() ->

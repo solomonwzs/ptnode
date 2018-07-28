@@ -44,9 +44,10 @@ init([ServModule, MasterSupRef, Socket, ProtoModule]) ->
            }}.
 
 
-handle_call('$active_socket', _From, State = #state{
-                                             protocol_module = ProtoModule,
-                                             socket = Socket}) ->
+handle_call('$active_socket', _From,
+            State = #state{
+                       protocol_module = ProtoModule,
+                       socket = Socket}) ->
     R = ProtoModule:setopts(Socket, [{active, true}]),
     {reply, R, State};
 handle_call(_Req, _From, State) ->
@@ -59,9 +60,10 @@ handle_cast(_Req, State) ->
 
 handle_info('$stop', State) ->
     {stop, normal, State};
-handle_info(Message, State = #state{
-                              protocol_module = ProtoModule
-                             }) ->
+handle_info(Message,
+            State = #state{
+                       protocol_module = ProtoModule
+                      }) ->
     case ProtoModule:parse_message(Message) of
         {ok, Data} ->
             ?dlog("~p~n", [Data]),
