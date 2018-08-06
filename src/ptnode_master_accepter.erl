@@ -18,7 +18,7 @@ loop(MasterSupRef, ListenSocket, Spec) ->
 
 accept(MasterSupRef, ListenSocket,
        Spec = {ProtoModule, _, _, AccepterOpts0, _}) ->
-    AccepterOpts = AccepterOpts0 ++ [{active, false}, {reuseaddr, true}],
+    AccepterOpts = AccepterOpts0 ++ [{active, false}],
     case ProtoModule:accept(ListenSocket, AccepterOpts) of
         {ok, SslSocket} ->
             handshake(MasterSupRef, SslSocket, Spec);
@@ -48,10 +48,10 @@ get_conn_sup(MasterSupRef, Socket, ProtoModule) ->
 
 start_conn_server(MasterSupRef, SupRef, Socket, ProtoModule) ->
     case supervisor:start_child(
-           SupRef, [MasterSupRef, Socket, ProtoModule]) of
+           SupRef, [{MasterSupRef, Socket, ProtoModule}]) of
         {ok, Ref} when is_pid(Ref) ->
             case ProtoModule:controlling_process(Socket, Ref) of
-                ok -> active_socket(Ref);
+                ok -> init_serv(Ref);
                 Err ->
                     ?dlog("~p~n", [Err]),
                     ProtoModule:close(Socket)
@@ -62,10 +62,10 @@ start_conn_server(MasterSupRef, SupRef, Socket, ProtoModule) ->
     end.
 
 
-active_socket(Ref) ->
-    case gen_server:call(Ref, '$active_socket') of
+init_serv(Ref) ->
+    case gen_server:call(Ref, '$init_serv') of
         ok -> ok;
-        Err ->
+        Err = {error, _} ->
             ?dlog("~p~n", [Err]),
             Ref ! '$stop'
     end.

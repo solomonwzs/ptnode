@@ -9,7 +9,9 @@
          close/1,
          controlling_process/2,
          setopts/2,
-         parse_message/1
+         parse_message/1,
+         send/2,
+         connect/4
         ]).
 
 -ifdef(OTP_RELEASE).
@@ -35,6 +37,10 @@ accept(ListenSocket, _) ->
     ssl:transport_accept(ListenSocket).
 
 
+connect(Host, Port, Options, Timeout) ->
+    ssl:connect(Host, Port, Options, Timeout).
+
+
 handshake(Socket, Opts) ->
     ?ssl_handshake(Socket, Opts).
 
@@ -51,7 +57,11 @@ setopts(Socket, Opts) ->
     ssl:setopts(Socket, Opts).
 
 
-parse_message({ssl, _Socket, Data}) -> {ok, Data};
+parse_message({ssl, _Socket, Data}) -> {ok, list_to_binary(Data)};
 parse_message({ssl_closed, _Socket}) -> close;
 parse_message({ssl_error, _Socket, Reason}) -> {error, Reason};
 parse_message(_) -> ignore.
+
+
+send(Socket, Data) ->
+    ssl:send(Socket, Data).

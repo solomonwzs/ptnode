@@ -7,13 +7,12 @@
 -export([start_link/4]).
 -export([init/1]).
 -export([get_conn_sup/1,
-         get_mgmt/1,
          get_all_conns/1]).
 
 
-start_link(Name, ProtoSpec, AccepterOpts, Serv) ->
+start_link(Name, ProtoSpec, AccepterOpts, ServSpec) ->
     supervisor:start_link({local, Name}, ?MODULE,
-                          [ProtoSpec, AccepterOpts, Serv]).
+                          [ProtoSpec, AccepterOpts, ServSpec]).
 
 
 -spec(get_conn_sup(supervisor:sup_ref())
@@ -24,20 +23,8 @@ get_conn_sup(MasterSupRef) ->
 
 
 get_conn_sup0([]) -> {error, "no supervisors found"};
-get_conn_sup0([{conn_sup, Ref, supervisor, _} | _]) -> {ok, Ref};
+get_conn_sup0([{'$conn_sup', Ref, supervisor, _} | _]) -> {ok, Ref};
 get_conn_sup0([_ | Tail]) -> get_conn_sup0(Tail).
-
-
--spec(get_mgmt(supervisor:sup_ref())
-      -> {ok, pid()} | {error, any()}).
-get_mgmt(MasterSupRef) ->
-    Children = supervisor:which_children(MasterSupRef),
-    get_mgmt0(Children).
-
-
-get_mgmt0([]) -> {error, "no mgmt found"};
-get_mgmt0([{mgmt, Ref, worker, _} | _]) -> {ok, Ref};
-get_mgmt0([_ | Tail]) -> get_mgmt0(Tail).
 
 
 -spec(get_all_conns(supervisor:sup_ref())
@@ -49,9 +36,9 @@ get_all_conns(MasterSupRef) ->
     end.
 
 
-init([ProtoSpec, AccepterOpts, ServModule]) ->
+init([ProtoSpec, AccepterOpts, ServSpec]) ->
     AccepterSup = {
-      accepter_sup,
+      '$accepter_sup',
       {ptnode_master_accepter_sup, start_link,
        [self(), ProtoSpec, AccepterOpts]},
       permanent,
@@ -59,8 +46,8 @@ init([ProtoSpec, AccepterOpts, ServModule]) ->
       supervisor,
       [ptnode_master_accepter_sup]},
     ConnSup = {
-      conn_sup,
-      {ptnode_master_conn_sup, start_link, [ServModule]},
+      '$conn_sup',
+      {ptnode_master_conn_sup, start_link, [ServSpec]},
       permanent,
       5000,
       supervisor,
