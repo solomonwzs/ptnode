@@ -9,6 +9,11 @@
 -export([get_conn_sup/1,
          get_all_conns/1]).
 
+-define(SUP_FLAGS, {one_for_one,
+                    ?MASTER_SUP_RESTART_INTENSITY,
+                    ?MASTER_SUP_RESTART_PERIOD
+                   }).
+
 
 start_link(Name, ProtoSpec, AccepterOpts, ServSpec) ->
     supervisor:start_link({local, Name}, ?MODULE,
@@ -53,4 +58,4 @@ init([ProtoSpec, AccepterOpts, ServSpec]) ->
       supervisor,
       [ptnode_conn_sup]
      },
-    {ok, {{one_for_one, 5, 10}, [AccepterSup, ConnSup]}}.
+    {ok, {?SUP_FLAGS, [AccepterSup, ConnSup]}}.

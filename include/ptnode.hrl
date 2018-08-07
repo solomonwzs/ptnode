@@ -9,4 +9,7 @@
           lists:append("\033[0;33m~p [~s:~p]~n\033[0m", Format),
           lists:append([self(), ?FILE, ?LINE], Args))).
 
+-define(MASTER_SUP_RESTART_INTENSITY, 5).
+-define(MASTER_SUP_RESTART_PERIOD, 10).
+
 -endif.

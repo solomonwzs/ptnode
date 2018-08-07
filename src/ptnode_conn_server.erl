@@ -1,6 +1,7 @@
 -module(ptnode_conn_server).
 
 -include("ptnode.hrl").
+-include("ptnode_conn_proto.hrl").
 
 -behaviour(gen_server).
 
@@ -19,13 +20,21 @@
 
 -record(state, {
           role              ::master | slaver,
+          name              ::any(),
+          cookie            ::binary(),
           master_sup        ::supervisor:sup_ref() | undefined,
+          protocol_module   ::atom(),
           serv_state        ::any(),
-          socket            ::ptnode_proto:socket() | undefined,
-          server_module     ::atom(),
           server_args       ::any(),
-          protocol_module   ::atom()
+          server_module     ::atom(),
+          socket            ::ptnode_proto:socket() | undefined,
+          status            ::wait | ready,
+          other             ::map()
          }).
+
+-define(RECONN_WAIT_TIME,
+        (?MASTER_SUP_RESTART_PERIOD div
+         ?MASTER_SUP_RESTART_INTENSITY + 1) * 1000).
 
 
 %% behaviour callback
@@ -63,28 +72,39 @@ start_link(slaver, Name, ServSpec, ExtArgs) ->
 
 
 init([master,
+      {Name, Cookie},
       {ServModule, ServArgs},
       {MasterSupRef, Socket, ProtoModule}]) ->
+    timer:apply_after(?PROTO_REG_TIMEOUT,
+                      gen_server, cast, [self(), '$reg_timeout']),
     {ok, #state{
-            role = master,
+            cookie = Cookie,
             master_sup = MasterSupRef,
+            name = Name,
+            protocol_module = ProtoModule,
+            role = master,
             serv_state = undefined,
-            socket = Socket,
-            server_module = ServModule,
             server_args = ServArgs,
-            protocol_module = ProtoModule
+            server_module = ServModule,
+            socket = Socket,
+            status = wait
            }};
-init([slaver, {ServModule, ServArgs},
+init([slaver,
+      {Name, Cookie},
+      {ServModule, ServArgs},
       {ProtoModule, Host, Port, ConnectOpts, Timeout}]) ->
     ConnReq = {'$conn_master', Host, Port, ConnectOpts, Timeout},
     gen_server:cast(self(), ConnReq),
     {ok, #state{
-            role = slaver,
-            socket = undefined,
-            server_module = ServModule,
-            server_args = ServArgs,
+            cookie = Cookie,
+            name = Name,
             protocol_module = ProtoModule,
-            serv_state = undefined
+            role = slaver,
+            serv_state = undefined,
+            server_args = ServArgs,
+            server_module = ServModule,
+            socket = undefined,
+            status = wait
            }}.
 
 
@@ -111,31 +131,36 @@ handle_call(_Req, _From, State) ->
     {reply, undefined, State}.
 
 
+handle_cast('$reg_timeout', State = #state{status = wait}) ->
+    {stop, {error, "register timeout"}, State};
 handle_cast({'$conn_master', Host, Port, ConnectOpts, Timeout},
             State = #state{
                        role = slaver,
                        protocol_module = ProtoModule,
-                       server_module = ServModule,
-                       server_args = ServArgs
+                       socket = Socket,
+                       name = Name,
+                       cookie = Cookie
                       }) ->
-    case ServModule:init(ServArgs) of
-        {ok, ServState} ->
-            case ProtoModule:connect(Host, Port, ConnectOpts, Timeout) of
-                {ok, Socket} ->
-                    {noreply, State#state{
-                                socket = Socket,
-                                serv_state = ServState
-                               }};
-                {error, Reason} ->
-                    timer:sleep(3 * 1000),
-                    {stop, Reason, State#state{
-                                     serv_state = ServState
-                                    }}
+    case ProtoModule:connect(Host, Port, ConnectOpts, Timeout) of
+        {ok, Socket} ->
+            NewState = State#state{socket = Socket},
+            Cmd = ptnode_conn_proto:wrap_register_cmd(Name, Cookie),
+            case ProtoModule:send(Socket, Cmd) of
+                ok ->
+                    timer:apply_after(?PROTO_REG_TIMEOUT,
+                                      gen_server, cast,
+                                      [self(), '$reg_timeout']),
+                    {noreply, NewState};
+                Err = {error, _} ->
+                    timer:sleep(?RECONN_WAIT_TIME),
+                    {stop, Err, NewState}
             end;
-        {error, Reason} -> {stop, Reason, State}
+        Err = {error, _} ->
+            timer:sleep(?RECONN_WAIT_TIME),
+            {stop, Err, State}
     end;
-handle_cast({'$serv_cast', Req}, State) ->
-    handle_noreply(handle_cast, Req, State);
+% handle_cast({'$serv_cast', Req}, State) ->
+%     handle_noreply(handle_cast, Req, State);
 handle_cast(_Req, State) ->
     {noreply, State}.
 
@@ -147,7 +172,7 @@ handle_info(Message, State = #state{
                                }) ->
     case ProtoModule:parse_message(Message) of
         {ok, Data} ->
-            handle_noreply(handle_data, Data, State);
+            handle_data(Data, State);
         {error, Reason} ->
             ?dlog("~p~n", [Reason]),
             {noreply, Reason, State};
@@ -182,28 +207,75 @@ handle_reply(Req, From,
     end.
 
 
-handle_noreply(Func, Req,
-               State = #state{
-                          socket = Socket,
-                          protocol_module = ProtoModule,
-                          server_module = ServModule,
-                          serv_state = ServState
-                         }) ->
-    case ServModule:Func(Req, ServState) of
-        {ok, Data, NewServState} ->
-            case ProtoModule:send(Socket, Data) of
-                ok -> {noreply, State#state{serv_state = NewServState}};
-                Err = {error, _} ->
-                    {stop, Err, State#state{serv_state = NewServState}}
-            end;
-        {ok, NewServState} ->
-            {noreply, State#state{serv_state = NewServState}};
-        {stop, Reason, Data, NewServState} ->
-            ProtoModule:send(Socket,  Data),
-            {stop, Reason, State#state{serv_state = NewServState}};
-        {stop, Reason, NewServState} ->
-            {stop, Reason, State#state{serv_state = NewServState}}
-    end.
+handle_data(<<?PROTO_VERSION:8/unsigned-little,
+              ?PROTO_CMD_HEARTBEAT:8/unsigned-little
+            >>, State) -> {noreply, State};
+handle_data(<<?PROTO_VERSION:8/unsigned-little,
+              ?PROTO_CMD_REG:8/unsigned-little,
+              NameLen:8/unsigned-little,
+              _Name:NameLen/binary,
+              CookieLen:8/unsigned-little,
+              Cookie:CookieLen/binary
+            >>,
+            State = #state{
+                       role = master,
+                       protocol_module = ProtoModule,
+                       socket = Socket,
+                       cookie = MasterCookie,
+                       status = wait
+                      }) ->
+    if MasterCookie =:= Cookie ->
+           Cmd = ptnode_conn_proto:wrap_register_res_cmd(
+                   ?PROTO_REG_RES_OK),
+           case ProtoModule:send(Socket, Cmd) of
+               ok -> {noreply, State#state{status = ready}};
+               Err = {error, _} -> {stop, Err, State}
+           end;
+       true ->
+           Cmd = ptnode_conn_proto:wrap_register_res_cmd(
+                   ?PROTO_REG_RES_ERR),
+           Reason = case ProtoModule:send(Socket, Cmd) of
+                        ok -> {error, "register error"};
+                        Err = {error, _} -> Err
+                    end,
+           {stop, Reason, State}
+    end;
+handle_data(<<?PROTO_VERSION:8/unsigned-little,
+              ?PROTO_CMD_REG_RES:8/unsigned-little,
+              ResCode:8/unsigned-little
+            >>,
+            State = #state{
+                       role = slaver,
+                       status = wait
+                      }) ->
+    if ResCode =:= ?PROTO_REG_RES_OK ->
+           {noreply, State#state{status = ready}};
+       true ->
+           {stop, {error, "register fail"}, State}
+    end;
+handle_data(_Data, State) -> {noreply, State}.
+% handle_noreply(Func, Req,
+%                State = #state{
+%                           socket = Socket,
+%                           protocol_module = ProtoModule,
+%                           server_module = ServModule,
+%                           serv_state = ServState
+%                          }) ->
+%     case ServModule:Func(Req, ServState) of
+%         {ok, Data, NewServState} ->
+%             case ProtoModule:send(Socket, Data) of
+%                 ok -> {noreply, State#state{serv_state = NewServState}};
+%                 Err = {error, _} ->
+%                     {stop, Err, State#state{serv_state = NewServState}}
+%             end;
+%         {ok, NewServState} ->
+%             {noreply, State#state{serv_state = NewServState}};
+%         {stop, Reason, Data, NewServState} ->
+%             ProtoModule:send(Socket,  Data),
+%             {stop, Reason, State#state{serv_state = NewServState}};
+%         {stop, Reason, NewServState} ->
+%             {stop, Reason, State#state{serv_state = NewServState}}
+%     end.
 
 
 handle_continue(_Continue, State) ->

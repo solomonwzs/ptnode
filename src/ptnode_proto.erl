@@ -55,3 +55,6 @@
 
 -callback send(Socket::socket(), Data::any()) ->
     ok | {error, Reason::any()}.
+
+-callback peername(Socket::socket()) ->
+    {ok, Peername::any()} | {error, any()}.

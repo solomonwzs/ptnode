@@ -2,16 +2,17 @@
 
 -behaviour(ptnode_proto).
 
--export([name/0,
-         listen/2,
-         accept/2,
-         handshake/2,
+-export([accept/2,
          close/1,
+         connect/4,
          controlling_process/2,
-         setopts/2,
+         handshake/2,
+         listen/2,
+         name/0,
          parse_message/1,
+         peername/1,
          send/2,
-         connect/4
+         setopts/2
         ]).
 
 -ifdef(OTP_RELEASE).
@@ -65,3 +66,7 @@ parse_message(_) -> ignore.
 
 send(Socket, Data) ->
     ssl:send(Socket, Data).
+
+
+peername(Socket) ->
+    ssl:peername(Socket).
