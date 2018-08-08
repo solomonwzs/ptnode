@@ -18,11 +18,13 @@ start_master() ->
       num_acceptors => 2
      },
     ServSpec = {master_echo_server, undefined},
-    ptnode:start_master(example_master, ProtoSpec, AccepterOpts,
+    ptnode:start_master({<<"master">>, <<"cookie">>},
+                        ProtoSpec,
+                        AccepterOpts,
                         ServSpec).
 
 
-stop_master() -> ptnode:stop_master(example_master).
+stop_master() -> ptnode:stop_master(<<"master">>).
 
 
 start_slaver() ->
@@ -34,7 +36,9 @@ start_slaver() ->
       infinity
      },
     ServSpec = {master_echo_server, undefined},
-    ptnode:start_slaver(example_slaver, ProtoSpec, ServSpec).
+    ptnode:start_slaver({<<"slaver">>, <<"cookie">>},
+                        ProtoSpec,
+                        ServSpec).
 
 
-stop_slaver() -> ptnode:stop_slaver(example_slaver).
+stop_slaver() -> ptnode:stop_slaver(<<"slaver">>).

@@ -4,6 +4,7 @@
 
 -behaviour(gen_server).
 
+-export([start_link/2]).
 -export([init/1,
          handle_call/3,
          handle_cast/2,
@@ -14,10 +15,57 @@
          terminate/2
         ]).
 
+-record(state, {
+          name          ::bitstring(),
+          cookie        ::bitstring(),
+          master_sup    ::pid(),
+          slavers       ::map()
+         }).
 
-init(_) -> {ok, #{}}.
+
+start_link(MasterSupRef, NodeInfo) ->
+    gen_server:start_link(?MODULE, [MasterSupRef, NodeInfo], []).
 
 
+init([MasterSupRef, {Name, Cookie}]) ->
+    {ok, #state{
+            name = Name,
+            cookie = Cookie,
+            master_sup = MasterSupRef,
+            slavers = #{}
+           }}.
+
+
+handle_call({'$register_slaver', Name, Pid}, _From,
+            State = #state{
+                       slavers = Slavers
+                      }) ->
+    case maps:find(Name, Slavers) of
+        {ok, _} -> {reply, {error, "slaver exist"}, State};
+        error ->
+            NewSlavers = maps:put(Name, Pid, Slavers),
+            {reply, ok, State#state{slavers = NewSlavers}}
+    end;
+handle_call({'$unregister_slaver', Name}, _From,
+            State = #state{
+                       slavers = Slavers
+                      }) ->
+    case maps:find(Name, Slavers) of
+        {ok, _} ->
+            NewSlavers = maps:remove(Name, Slavers),
+            {reply, ok, State#state{slavers = NewSlavers}};
+        error -> {reply, {error, "slaver not exist"}, State}
+    end;
+handle_call('$get_all_slavers', _From, State) ->
+    {reply, State#state.slavers, State};
+handle_call({'$get_slaver', Name}, _From,
+            State = #state{
+                       slavers = Slavers
+                      }) ->
+    case maps:find(Name, Slavers) of
+        {ok, Pid} -> {reply, Pid, State};
+        error -> {reply, {error, "slaver not exist"}, State}
+    end;
 handle_call(_Req, _From, State) ->
     {reply, undefined, State}.
 

@@ -27,6 +27,5 @@ handle_data(Data, State) ->
     {ok, State}.
 
 
-terminate(Reason, _State) ->
-    ?dlog("~p~n", [Reason]),
+terminate(_Reason, _State) ->
     ok.

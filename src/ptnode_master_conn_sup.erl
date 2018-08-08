@@ -2,18 +2,18 @@
 
 -behaviour(supervisor).
 
--export([start_link/1]).
+-export([start_link/2]).
 -export([init/1]).
 
 
-start_link(ServSpec) ->
-    supervisor:start_link(?MODULE, [ServSpec]).
+start_link(NodeInfo, ServSpec) ->
+    supervisor:start_link(?MODULE, [NodeInfo, ServSpec]).
 
 
-init([ServSpec]) ->
+init([{_, Cookie}, ServSpec]) ->
     ChildSpec = {'$serv',
                 {ptnode_conn_server, start_link,
-                 [master, ServSpec]},
+                 [master, Cookie, ServSpec]},
                 temporary,
                 5000,
                 worker,

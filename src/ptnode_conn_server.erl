@@ -5,7 +5,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/3, start_link/4]).
+-export([start_link/4]).
 -export([init/1,
          handle_call/3,
          handle_cast/2,
@@ -20,9 +20,9 @@
 
 -record(state, {
           role              ::master | slaver,
-          name              ::any(),
+          slaver_name       ::any(),
           cookie            ::binary(),
-          master_sup        ::supervisor:sup_ref() | undefined,
+          sup               ::supervisor:sup_ref() | undefined,
           protocol_module   ::atom(),
           serv_state        ::any(),
           server_args       ::any(),
@@ -62,27 +62,26 @@
 %%
 
 
-start_link(master, ServSpec, ExtArgs) ->
-    gen_server:start_link(?MODULE, [master, ServSpec, ExtArgs], []).
-
-
-start_link(slaver, Name, ServSpec, ExtArgs) ->
-    gen_server:start_link({local, Name}, ?MODULE,
-                          [slaver, ServSpec, ExtArgs], []).
+start_link(master, Cookie, ServSpec, ExtArgs) ->
+    gen_server:start_link(
+      ?MODULE, [master, Cookie, ServSpec, ExtArgs], []);
+start_link(slaver, NodeInfo, ServSpec, ExtArgs) ->
+    gen_server:start_link(
+      ?MODULE, [slaver, NodeInfo, ServSpec, ExtArgs], []).
 
 
 init([master,
-      {Name, Cookie},
+      Cookie,
       {ServModule, ServArgs},
       {MasterSupRef, Socket, ProtoModule}]) ->
     timer:apply_after(?PROTO_REG_TIMEOUT,
                       gen_server, cast, [self(), '$reg_timeout']),
     {ok, #state{
-            cookie = Cookie,
-            master_sup = MasterSupRef,
-            name = Name,
-            protocol_module = ProtoModule,
             role = master,
+            slaver_name = undefined,
+            cookie = Cookie,
+            sup = MasterSupRef,
+            protocol_module = ProtoModule,
             serv_state = undefined,
             server_args = ServArgs,
             server_module = ServModule,
@@ -92,14 +91,15 @@ init([master,
 init([slaver,
       {Name, Cookie},
       {ServModule, ServArgs},
-      {ProtoModule, Host, Port, ConnectOpts, Timeout}]) ->
+      {SlaverSupRef, ProtoModule, Host, Port, ConnectOpts, Timeout}]) ->
     ConnReq = {'$conn_master', Host, Port, ConnectOpts, Timeout},
     gen_server:cast(self(), ConnReq),
     {ok, #state{
-            cookie = Cookie,
-            name = Name,
-            protocol_module = ProtoModule,
             role = slaver,
+            slaver_name = Name,
+            cookie = Cookie,
+            sup = SlaverSupRef,
+            protocol_module = ProtoModule,
             serv_state = undefined,
             server_args = ServArgs,
             server_module = ServModule,
@@ -137,8 +137,7 @@ handle_cast({'$conn_master', Host, Port, ConnectOpts, Timeout},
             State = #state{
                        role = slaver,
                        protocol_module = ProtoModule,
-                       socket = Socket,
-                       name = Name,
+                       slaver_name = Name,
                        cookie = Cookie
                       }) ->
     case ProtoModule:connect(Host, Port, ConnectOpts, Timeout) of
@@ -213,12 +212,13 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
 handle_data(<<?PROTO_VERSION:8/unsigned-little,
               ?PROTO_CMD_REG:8/unsigned-little,
               NameLen:8/unsigned-little,
-              _Name:NameLen/binary,
+              Name:NameLen/binary,
               CookieLen:8/unsigned-little,
               Cookie:CookieLen/binary
             >>,
             State = #state{
                        role = master,
+                       sup = MasterSupRef,
                        protocol_module = ProtoModule,
                        socket = Socket,
                        cookie = MasterCookie,
@@ -228,7 +228,14 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
            Cmd = ptnode_conn_proto:wrap_register_res_cmd(
                    ?PROTO_REG_RES_OK),
            case ProtoModule:send(Socket, Cmd) of
-               ok -> {noreply, State#state{status = ready}};
+               ok ->
+                   case ptnode_master_sup:register_slaver(
+                          MasterSupRef, Name, self()) of
+                       ok ->
+                           {noreply, State#state{status = ready}};
+                       Err = {error, _} ->
+                           {stop, Err, State}
+                   end;
                Err = {error, _} -> {stop, Err, State}
            end;
        true ->
@@ -254,28 +261,6 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
            {stop, {error, "register fail"}, State}
     end;
 handle_data(_Data, State) -> {noreply, State}.
-% handle_noreply(Func, Req,
-%                State = #state{
-%                           socket = Socket,
-%                           protocol_module = ProtoModule,
-%                           server_module = ServModule,
-%                           serv_state = ServState
-%                          }) ->
-%     case ServModule:Func(Req, ServState) of
-%         {ok, Data, NewServState} ->
-%             case ProtoModule:send(Socket, Data) of
-%                 ok -> {noreply, State#state{serv_state = NewServState}};
-%                 Err = {error, _} ->
-%                     {stop, Err, State#state{serv_state = NewServState}}
-%             end;
-%         {ok, NewServState} ->
-%             {noreply, State#state{serv_state = NewServState}};
-%         {stop, Reason, Data, NewServState} ->
-%             ProtoModule:send(Socket,  Data),
-%             {stop, Reason, State#state{serv_state = NewServState}};
-%         {stop, Reason, NewServState} ->
-%             {stop, Reason, State#state{serv_state = NewServState}}
-%     end.
 
 
 handle_continue(_Continue, State) ->
@@ -291,12 +276,20 @@ format_status(_Opt, [_PDict, _State]) ->
 
 
 terminate(Reason, #state{
+                     role = Role,
+                     sup = SupRef,
+                     slaver_name = Name,
                      socket = Socket,
                      protocol_module = ProtoModule,
                      server_module = ServModule,
                      serv_state = ServState
                     }) ->
+    ?dlog("~p~n", [Reason]),
     if Socket =/= undefined -> ProtoModule:close(Socket);
+       true -> ok
+    end,
+    if Role =:= master andalso Name =/= undefined ->
+           ptnode_master_sup:unregister_slaver(SupRef, Name);
        true -> ok
     end,
     ServModule:terminate(Reason, ServState),
