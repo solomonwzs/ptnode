@@ -9,6 +9,28 @@
 -export([start_master/4, stop_master/1]).
 -export([start_slaver/3, stop_slaver/1]).
 
+%% master_spec() =
+%% #{
+%%      node_info => #{
+%%          node_name => bitstring(),
+%%          node_cookie => bitstring()
+%%      },
+%%      proto_spec => #{
+%%          proto_module => atom(),
+%%          listen_port => integer(),
+%%          listen_opts => any(),
+%%          accept_opts => any(),
+%%          handshake_opts => any()
+%%      },
+%%      accepter_opts => #{
+%%          num_acceptors => integer()
+%%      },
+%%      serv_spec => #{
+%%          serv_module => atom(),
+%%          init_args => any()
+%%      }
+%% }
+
 
 start() -> application:start(ptnode).
 
