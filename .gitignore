@@ -1,3 +1,4 @@
 ebin
 .rebar
 erl_crash.dump
+doc/

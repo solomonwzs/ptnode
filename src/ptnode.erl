@@ -1,35 +1,39 @@
+%% @author Solomon Ng <solomon.wzs@gmail.com>
+
 -module(ptnode).
 
 -include("ptnode.hrl").
 
--type serv_spec()::{ServModule::atom(), ServArgs::any()}.
--type node_info()::{Name::binary(), Cookie::binary()}.
+-type node_opts() :: #{
+        name => atom(),
+        cookie => bitstring(),
+        num_acceptors => pos_integer(),
+        named_node => boolean()
+       }.
+-export_type([node_opts/0]).
+
+-type proto_opts() :: #{
+        module => module(),
+        listen_port => pos_integer(),
+        listen_opts => list(),
+        accept_opts => list(),
+        handshake_opts => list(),
+        connect_host => ptnode_proto:host(),
+        connect_port => pos_integer(),
+        connect_opts => list(),
+        timeout => pos_integer() | infinity
+       }.
+-export_type([proto_opts/0]).
+
+-type serv_spec() :: #{
+        module => module(),
+        init_args => any()
+       }.
+-export_type([serv_spec/0]).
 
 -export([start/0, stop/0]).
--export([start_master/4, stop_master/1]).
+-export([start_master/3, stop_master/1]).
 -export([start_slaver/3, stop_slaver/1]).
-
-%% master_spec() =
-%% #{
-%%      node_info => #{
-%%          node_name => bitstring(),
-%%          node_cookie => bitstring()
-%%      },
-%%      proto_spec => #{
-%%          proto_module => atom(),
-%%          listen_port => integer(),
-%%          listen_opts => any(),
-%%          accept_opts => any(),
-%%          handshake_opts => any()
-%%      },
-%%      accepter_opts => #{
-%%          num_acceptors => integer()
-%%      },
-%%      serv_spec => #{
-%%          serv_module => atom(),
-%%          init_args => any()
-%%      }
-%% }
 
 
 start() -> application:start(ptnode).
@@ -47,18 +51,17 @@ try_delete_child(ChildId) ->
     end.
 
 
--spec(start_master(node_info(), ptnode_proto:server_proto_spec(),
-                   map(), serv_spec())
+-spec(start_master(node_opts(), proto_opts(), serv_spec())
       -> {ok, pid()} | {error, any()}).
-start_master(NodeInfo = {Name, _}, ProtoSpec, AccepterOpts, ServSpec) ->
-    ChildId = {'$master', Name},
+start_master(NodeOpts, ProtoOpts, ServSpec) ->
+    ChildId = {'$master', maps:get(name, NodeOpts)},
     case try_delete_child(ChildId) of
         ok ->
             supervisor:start_child(
               ptnode_sup,
-              {{'$master', Name},
+              {ChildId,
                {ptnode_master_sup, start_link,
-                [NodeInfo, ProtoSpec, AccepterOpts, ServSpec]},
+                [NodeOpts, ProtoOpts, ServSpec]},
                transient,
                5000,
                supervisor,
@@ -73,18 +76,17 @@ stop_master(Name) ->
     supervisor:delete_child(ptnode_sup, {'$master', Name}).
 
 
--spec(start_slaver(node_info(), ptnode_proto:client_proto_spec(),
-                   serv_spec())
+-spec(start_slaver(node_opts(), proto_opts(), serv_spec())
       -> {ok, pid()} | {error, any()}).
-start_slaver(NodeInfo = {Name, _}, ProtoSpec, ServSpec) ->
-    ChildId = {'$slaver', Name},
+start_slaver(NodeOpts, ProtoOpts, ServSpec) ->
+    ChildId = {'$slaver', maps:get(name, NodeOpts)},
     case try_delete_child(ChildId) of
         ok ->
             supervisor:start_child(
               ptnode_sup,
-              {{'$slaver', Name},
+              {ChildId,
                {ptnode_slaver_sup, start_link,
-                [NodeInfo, ServSpec, ProtoSpec]},
+                [NodeOpts, ProtoOpts, ServSpec]},
                transient,
                5000,
                supervisor,

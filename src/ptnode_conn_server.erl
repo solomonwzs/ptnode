@@ -1,3 +1,5 @@
+%% @author Solomon Ng <solomon.wzs@gmail.com>
+
 -module(ptnode_conn_server).
 
 -include("ptnode.hrl").
@@ -5,7 +7,8 @@
 
 -behaviour(gen_server).
 
--export([start_link/4]).
+-export([start_master_conn_link/4]).
+-export([start_slaver_conn_link/4]).
 -export([init/1,
          handle_call/3,
          handle_cast/2,
@@ -19,17 +22,16 @@
 -export([close_conn/1]).
 
 -record(state, {
-          role              ::master | slaver,
-          slaver_name       ::any(),
-          cookie            ::binary(),
-          sup               ::supervisor:sup_ref() | undefined,
-          protocol_module   ::atom(),
-          serv_state        ::any(),
-          server_args       ::any(),
-          server_module     ::atom(),
-          socket            ::ptnode_proto:socket() | undefined,
-          status            ::wait | ready,
-          other             ::map()
+          role              :: master | slaver,
+          slaver_name       :: atom(),
+          cookie            :: bitstring(),
+          sup               :: supervisor:sup_ref() | undefined,
+          protocol_module   :: module(),
+          serv_state        :: any(),
+          server_args       :: any(),
+          server_module     :: module(),
+          socket            :: ptnode_proto:socket() | undefined,
+          status            :: wait | ready
          }).
 
 -define(RECONN_WAIT_TIME,
@@ -62,43 +64,59 @@
 %%
 
 
-start_link(master, Cookie, ServSpec, ExtArgs) ->
+-spec(start_master_conn_link(ptnode:node_opts(), ptnode:proto_opts(),
+                             ptnode:serv_spec(), any())
+      -> pid() | {error, any()}).
+start_master_conn_link(NodeOpts, ProtoOpts, ServSpec, ExtArgs) ->
     gen_server:start_link(
-      ?MODULE, [master, Cookie, ServSpec, ExtArgs], []);
-start_link(slaver, NodeInfo, ServSpec, ExtArgs) ->
-    gen_server:start_link(
-      ?MODULE, [slaver, NodeInfo, ServSpec, ExtArgs], []).
+      ?MODULE, [master, NodeOpts, ProtoOpts, ServSpec, ExtArgs], []).
 
 
-init([master,
-      Cookie,
-      {ServModule, ServArgs},
-      {MasterSupRef, Socket, ProtoModule}]) ->
+-spec(start_slaver_conn_link(ptnode:node_opts(), ptnode:proto_opts(),
+                             ptnode:serv_spec(), pid())
+      -> pid() | {error, any()}).
+start_slaver_conn_link(NodeOpts, ProtoOpts, ServSpec, SupRef) ->
+    gen_server:start_link(
+      ?MODULE, [slaver, NodeOpts, ProtoOpts, ServSpec, SupRef], []).
+
+
+init([master, NodeOpts, ProtoOpts, ServSpec,
+      {MasterSupRef, Socket}]) ->
     timer:apply_after(?PROTO_REG_TIMEOUT,
                       gen_server, cast, [self(), '$reg_timeout']),
     {ok, #state{
             role = master,
             slaver_name = undefined,
-            cookie = Cookie,
+            cookie = maps:get(cookie, NodeOpts),
             sup = MasterSupRef,
-            protocol_module = ProtoModule,
+            protocol_module = maps:get(module, ProtoOpts),
             serv_state = undefined,
-            server_args = ServArgs,
-            server_module = ServModule,
+            server_module = maps:get(module, ServSpec),
+            server_args = maps:get(init_args, ServSpec),
             socket = Socket,
             status = wait
            }};
-init([slaver,
-      {Name, Cookie},
-      {ServModule, ServArgs},
-      {SlaverSupRef, ProtoModule, Host, Port, ConnectOpts, Timeout}]) ->
-    ConnReq = {'$conn_master', Host, Port, ConnectOpts, Timeout},
+init([slaver, NodeOpts, ProtoOpts, ServSpec, SupRef]) ->
+    ProtoModule = maps:get(module, ProtoOpts),
+    Host = maps:get(connect_host, ProtoOpts),
+    Port = maps:get(connect_port, ProtoOpts),
+    Opts = maps:get(connect_opts, ProtoOpts),
+    Timeout = maps:get(timeout, ProtoOpts),
+
+    Name = maps:get(name, NodeOpts),
+    Cookie = maps:get(cookie, NodeOpts),
+
+    ServModule = maps:get(module, ServSpec),
+    ServArgs = maps:get(init_args, ServSpec),
+
+    ConnReq = {'$conn_master', Host, Port, Opts, Timeout},
     gen_server:cast(self(), ConnReq),
+
     {ok, #state{
             role = slaver,
             slaver_name = Name,
             cookie = Cookie,
-            sup = SlaverSupRef,
+            sup = SupRef,
             protocol_module = ProtoModule,
             serv_state = undefined,
             server_args = ServArgs,
@@ -212,7 +230,7 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
 handle_data(<<?PROTO_VERSION:8/unsigned-little,
               ?PROTO_CMD_REG:8/unsigned-little,
               NameLen:8/unsigned-little,
-              Name:NameLen/binary,
+              BinName:NameLen/binary,
               CookieLen:8/unsigned-little,
               Cookie:CookieLen/binary
             >>,
@@ -229,10 +247,14 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
                    ?PROTO_REG_RES_OK),
            case ProtoModule:send(Socket, Cmd) of
                ok ->
+                   Name = binary_to_atom(BinName, utf8),
                    case ptnode_master_sup:register_slaver(
                           MasterSupRef, Name, self()) of
                        ok ->
-                           {noreply, State#state{status = ready}};
+                           {noreply, State#state{
+                                       slaver_name = Name,
+                                       status = ready
+                                      }};
                        Err = {error, _} ->
                            {stop, Err, State}
                    end;

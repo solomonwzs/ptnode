@@ -1,3 +1,5 @@
+%% @author Solomon Ng <solomon.wzs@gmail.com>
+
 -module(ptnode_proto_ssl).
 
 -behaviour(ptnode_proto).

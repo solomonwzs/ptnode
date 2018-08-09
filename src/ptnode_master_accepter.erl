@@ -1,32 +1,43 @@
+%% @author Solomon Ng <solomon.wzs@gmail.com>
+
 -module(ptnode_master_accepter).
 
 -include("ptnode.hrl").
 
 -export([start_link/3]).
--export([loop/3]).
+-export([loop/5]).
 
 
-start_link(SupRef, ListenSocket, Spec) ->
-    Pid = spawn_link(?MODULE, loop, [SupRef, ListenSocket, Spec]),
+start_link(SupRef, ListenSocket, ProtoOpts) ->
+    ProtoModule = maps:get(module, ProtoOpts),
+    AccepterOpts = maps:get(accept_opts, ProtoOpts),
+    HandshakeOpts = maps:get(handshake_opts, ProtoOpts),
+    Pid = spawn_link(?MODULE, loop,
+                     [SupRef, ListenSocket,
+                      ProtoModule, AccepterOpts, HandshakeOpts]),
     {ok, Pid}.
 
 
-loop(MasterSupRef, ListenSocket, Spec) ->
-    accept(MasterSupRef, ListenSocket, Spec),
-    loop(MasterSupRef, ListenSocket, Spec).
+loop(MasterSupRef, ListenSocket,
+     ProtoModule, AccepterOpts, HandshakeOpts) ->
+    accept(MasterSupRef, ListenSocket,
+           ProtoModule, AccepterOpts, HandshakeOpts),
+    loop(MasterSupRef, ListenSocket,
+         ProtoModule, AccepterOpts, HandshakeOpts).
 
 
 accept(MasterSupRef, ListenSocket,
-       Spec = {ProtoModule, _, _, AccepterOpts0, _}) ->
-    AccepterOpts = AccepterOpts0 ++ [{active, false}],
+       ProtoModule, AccepterOpts, HandshakeOpts) ->
     case ProtoModule:accept(ListenSocket, AccepterOpts) of
         {ok, SslSocket} ->
-            handshake(MasterSupRef, SslSocket, Spec);
+            handshake(MasterSupRef, SslSocket,
+                      ProtoModule, HandshakeOpts);
         Err -> ?dlog("~p~n", [Err])
     end.
 
 
-handshake(MasterSupRef, SslSocket, {ProtoModule, _, _, _, HandshakeOpts}) ->
+handshake(MasterSupRef, SslSocket,
+          ProtoModule, HandshakeOpts) ->
     case ProtoModule:handshake(SslSocket, HandshakeOpts) of
         {ok, Socket} ->
             get_conn_sup(MasterSupRef, Socket, ProtoModule);
@@ -48,7 +59,7 @@ get_conn_sup(MasterSupRef, Socket, ProtoModule) ->
 
 start_conn_server(MasterSupRef, SupRef, Socket, ProtoModule) ->
     case supervisor:start_child(
-           SupRef, [{MasterSupRef, Socket, ProtoModule}]) of
+           SupRef, [{MasterSupRef, Socket}]) of
         {ok, Ref} when is_pid(Ref) ->
             case ProtoModule:controlling_process(Socket, Ref) of
                 ok -> init_serv(Ref);

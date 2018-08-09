@@ -1,3 +1,5 @@
+%% @author Solomon Ng <solomon.wzs@gmail.com>
+
 -module(ptnode_master_accepter_sup).
 
 -include("ptnode.hrl").
@@ -8,21 +10,27 @@
 -export([init/1]).
 
 
-start_link(MasterSupRef, ProtoSpec, AccepterOpts) ->
-    supervisor:start_link(?MODULE, [MasterSupRef, ProtoSpec, AccepterOpts]).
+-spec(start_link(pid(), ptnode:node_opts(), ptnode:proto_opts())
+      -> pid() | {error, any()}).
+start_link(MasterSupRef, NodeOpts, ProtoOpts) ->
+    supervisor:start_link(
+      ?MODULE, [MasterSupRef, NodeOpts, ProtoOpts]).
 
 
-init(A = [MasterSupRef,
-          Spec = {ProtoModule, Port, ListenOpts, _, _},
-          AccepterOpts]) ->
-    NumAcceptors = maps:get(num_acceptors, AccepterOpts, 10),
-    case ProtoModule:listen(Port, ListenOpts ++ [{reuseaddr, true}]) of
+init(A = [MasterSupRef, NodeOpts, ProtoOpts]) ->
+    NumAcceptors = maps:get(num_acceptors, NodeOpts, 10),
+    ProtoModule = maps:get(module, ProtoOpts),
+    Port = maps:get(listen_port, ProtoOpts),
+    ListenOpts = [{reuseaddr, true}, {active, false} |
+                  maps:get(listen_opts, ProtoOpts)],
+
+    case ProtoModule:listen(Port, ListenOpts) of
         {ok, ListenSocket} ->
             ProtoModule:listen(Port, ListenOpts),
             Accepters = [{
               {accepter, N},
               {ptnode_master_accepter, start_link,
-               [MasterSupRef, ListenSocket, Spec]},
+               [MasterSupRef, ListenSocket, ProtoOpts]},
               permanent,
               5000,
               worker,

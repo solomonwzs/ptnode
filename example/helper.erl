@@ -5,40 +5,49 @@
 
 
 start_master() ->
-    ProtoSpec = {
-      ptnode_proto_ssl,
-      6666,
-      [{certfile, "./priv/example-pem/cert.pem"},
-       {keyfile, "./priv/example-pem/key.pem"}
-      ],
-      [],
-      []
+    NodeOpts = #{
+      name => example_master,
+      cookie => <<"cookie12345">>,
+      num_acceptors => 2,
+      named_node => true
      },
-    AccepterOpts = #{
-      num_acceptors => 2
+    ProtoOpts = #{
+      module => ptnode_proto_ssl,
+      listen_port => 6666,
+      listen_opts => [{certfile, "./priv/example-pem/cert.pem"},
+                      {keyfile, "./priv/example-pem/key.pem"}
+                     ],
+      accept_opts => [],
+      handshake_opts => []
      },
-    ServSpec = {master_echo_server, undefined},
-    ptnode:start_master({<<"master">>, <<"cookie">>},
-                        ProtoSpec,
-                        AccepterOpts,
-                        ServSpec).
+    ServSpec = #{
+      module => master_echo_server,
+      init_args => undefined
+     },
+    ptnode:start_master(NodeOpts, ProtoOpts, ServSpec).
 
 
-stop_master() -> ptnode:stop_master(<<"master">>).
+stop_master() -> ptnode:stop_master(example_master).
 
 
 start_slaver() ->
-    ProtoSpec = {
-      ptnode_proto_ssl,
-      "127.0.0.1",
-      6666,
-      [],
-      infinity
+    NodeOpts = #{
+      name => example_slaver,
+      cookie => <<"cookie12345">>,
+      named_node => true
      },
-    ServSpec = {master_echo_server, undefined},
-    ptnode:start_slaver({<<"slaver">>, <<"cookie">>},
-                        ProtoSpec,
-                        ServSpec).
+    ProtoOpts = #{
+      module => ptnode_proto_ssl,
+      connect_host => "127.0.0.1",
+      connect_port => 6666,
+      connect_opts => [],
+      timeout => infinity
+     },
+    ServSpec = #{
+      module => master_echo_server,
+      init_args => undefined
+     },
+    ptnode:start_slaver(NodeOpts, ProtoOpts, ServSpec).
 
 
-stop_slaver() -> ptnode:stop_slaver(<<"slaver">>).
+stop_slaver() -> ptnode:stop_slaver(example_slaver).

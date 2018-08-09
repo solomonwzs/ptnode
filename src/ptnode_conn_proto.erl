@@ -6,7 +6,8 @@
          wrap_register_res_cmd/1
         ]).
 
-
+wrap_register_cmd(Name, Cookie) when is_atom(Name) ->
+    wrap_register_cmd(atom_to_binary(Name, utf8), Cookie);
 wrap_register_cmd(Name, Cookie) when is_list(Name) ->
     wrap_register_cmd(list_to_binary(Name), Cookie);
 wrap_register_cmd(Name, Cookie) when is_list(Cookie) ->

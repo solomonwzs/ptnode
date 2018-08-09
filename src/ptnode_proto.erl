@@ -8,22 +8,6 @@
 -type host()::hostname() | ip_address().
 -export_type([host/0]).
 
--type server_proto_spec()::{
-        ProtocolModule::atom(),
-        Port::integer(),
-        ListenOptions::any(),
-        AcceptOptions::any(),
-        HandshakeOptions::any()
-       }.
--type client_proto_spec()::{
-        ProtoModule::atom(),
-        Host::host(),
-        Port::integer(),
-        ConnectOpts::any(),
-        Timeout::integer() | infinity
-       }.
--export_type([server_proto_spec/0, client_proto_spec/0]).
-
 -callback name() -> atom().
 
 -callback listen(Port::integer(), Options::any()) ->

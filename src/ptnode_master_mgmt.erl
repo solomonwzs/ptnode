@@ -1,3 +1,5 @@
+%% @author Solomon Ng <solomon.wzs@gmail.com>
+
 -module(ptnode_master_mgmt).
 
 -include("ptnode.hrl").
@@ -16,21 +18,22 @@
         ]).
 
 -record(state, {
-          name          ::bitstring(),
+          name          ::atom(),
           cookie        ::bitstring(),
           master_sup    ::pid(),
           slavers       ::map()
          }).
 
 
-start_link(MasterSupRef, NodeInfo) ->
-    gen_server:start_link(?MODULE, [MasterSupRef, NodeInfo], []).
+-spec(start_link(pid(), ptnode:node_opts()) -> pid() | {error, any()}).
+start_link(MasterSupRef, NodeOpts) ->
+    gen_server:start_link(?MODULE, [MasterSupRef, NodeOpts], []).
 
 
-init([MasterSupRef, {Name, Cookie}]) ->
+init([MasterSupRef, NodeOpts]) ->
     {ok, #state{
-            name = Name,
-            cookie = Cookie,
+            name = maps:get(name, NodeOpts),
+            cookie = maps:get(cookie, NodeOpts),
             master_sup = MasterSupRef,
             slavers = #{}
            }}.

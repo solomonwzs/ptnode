@@ -1,3 +1,5 @@
+%% @author Solomon Ng <solomon.wzs@gmail.com>
+
 -module(ptnode_slaver_sup).
 
 -include("ptnode.hrl").
@@ -6,15 +8,25 @@
 -export([init/1]).
 
 
-start_link(NodeInfo, ServSpec, ProtoSpec) ->
-    supervisor:start_link(?MODULE, [NodeInfo, ServSpec, ProtoSpec]).
+-spec(start_link(ptnode:node_opts(), ptnode:proto_opts(),
+                 ptnode:serv_spec())
+      -> ok | {error, any()}).
+start_link(NodeOpts, ProtoOpts, ServSpec) ->
+    case maps:get(named_node, NodeOpts, false) of
+        true ->
+            supervisor:start_link({local, maps:get(name, NodeOpts)},
+                                  ?MODULE, [NodeOpts, ProtoOpts, ServSpec]);
+        false ->
+            supervisor:start_link(
+              ?MODULE, [NodeOpts, ProtoOpts, ServSpec])
+    end.
 
 
-init([NodeInfo, ServSpec, ProtoSpec]) ->
+init([NodeOpts, ProtoOpts, ServSpec]) ->
     Spec = {
       '$slaver',
-      {ptnode_conn_server, start_link,
-       [slaver, NodeInfo, ServSpec, ProtoSpec]},
+      {ptnode_conn_server, start_slaver_conn_link,
+       [NodeOpts, ProtoOpts, ServSpec, self()]},
       permanent,
       5000,
       worker,

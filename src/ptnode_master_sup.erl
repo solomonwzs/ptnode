@@ -1,10 +1,12 @@
+%% @author Solomon Ng <solomon.wzs@gmail.com>
+
 -module(ptnode_master_sup).
 
 -include("ptnode.hrl").
 
 -behaviour(supervisor).
 
--export([start_link/4]).
+-export([start_link/3]).
 -export([init/1]).
 -export([get_conn_sup/1,
          get_mgmt/1,
@@ -18,9 +20,15 @@
                    }).
 
 
-start_link(NodeInfo, ProtoSpec, AccepterOpts, ServSpec) ->
-    supervisor:start_link(
-      ?MODULE, [NodeInfo, ProtoSpec, AccepterOpts, ServSpec]).
+start_link(NodeOpts, ProtoOpts, ServSpec) ->
+    case maps:get(named_node, NodeOpts, false) of
+        true ->
+            supervisor:start_link({local, maps:get(name, NodeOpts)},
+                                  ?MODULE, [NodeOpts, ProtoOpts, ServSpec]);
+        false ->
+            supervisor:start_link(
+              ?MODULE, [NodeOpts, ProtoOpts, ServSpec])
+    end.
 
 
 -spec(get_conn_sup(supervisor:sup_ref())
@@ -51,18 +59,18 @@ get_all_conns(MasterSupRef) ->
     end.
 
 
-init([NodeInfo, ProtoSpec, AccepterOpts, ServSpec]) ->
+init([NodeOpts, ProtoOpts, ServSpec]) ->
     AccepterSup = {
       '$accepter_sup',
       {ptnode_master_accepter_sup, start_link,
-       [self(), ProtoSpec, AccepterOpts]},
+       [self(), NodeOpts, ProtoOpts]},
       permanent,
       5000,
       supervisor,
       [ptnode_master_accepter_sup]},
     ConnSup = {
       '$conn_sup',
-      {ptnode_master_conn_sup, start_link, [NodeInfo, ServSpec]},
+      {ptnode_master_conn_sup, start_link, [NodeOpts, ProtoOpts, ServSpec]},
       permanent,
       5000,
       supervisor,
@@ -70,7 +78,7 @@ init([NodeInfo, ProtoSpec, AccepterOpts, ServSpec]) ->
      },
     Mgmt = {
       '$mgmt',
-      {ptnode_master_mgmt, start_link, [self(), NodeInfo]},
+      {ptnode_master_mgmt, start_link, [self(), NodeOpts]},
       permanent,
       5000,
       worker,
@@ -85,5 +93,8 @@ register_slaver(MasterSupRef, Name, Pid) ->
 
 
 unregister_slaver(MasterSupRef, Name) ->
-    Mgmt = get_mgmt(MasterSupRef),
-    gen_server:call(Mgmt, {'$unregister_slaver', Name}).
+    case get_mgmt(MasterSupRef) of
+        {ok, Mgmt} ->
+            gen_server:call(Mgmt, {'$unregister_slaver', Name});
+        _ -> ok
+    end.
