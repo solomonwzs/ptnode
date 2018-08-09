@@ -38,6 +38,8 @@
         (?MASTER_SUP_RESTART_PERIOD div
          ?MASTER_SUP_RESTART_INTENSITY + 1) * 1000).
 
+-define(HEARTBEAT_INTENSITY, 5000).
+
 
 %% behaviour callback
 -callback init(Args::any()) -> {ok, State::any()} | {error, Reason::any()}.
@@ -149,6 +151,16 @@ handle_call(_Req, _From, State) ->
     {reply, undefined, State}.
 
 
+handle_cast('$heartbeat', State = #state{
+                                     protocol_module = ProtoModule,
+                                     socket = Socket,
+                                     status = ready
+                                    }) ->
+    Cmd = ptnode_conn_proto:wrap_heartbeat_cmd(),
+    case ProtoModule:send(Socket, Cmd) of
+        ok -> {noreply, State};
+        Err = {error, _} -> {stop, Err, State}
+    end;
 handle_cast('$reg_timeout', State = #state{status = wait}) ->
     {stop, {error, "register timeout"}, State};
 handle_cast({'$conn_master', Host, Port, ConnectOpts, Timeout},
@@ -226,7 +238,8 @@ handle_reply(Req, From,
 
 handle_data(<<?PROTO_VERSION:8/unsigned-little,
               ?PROTO_CMD_HEARTBEAT:8/unsigned-little
-            >>, State) -> {noreply, State};
+            >>, State) ->
+    {noreply, State};
 handle_data(<<?PROTO_VERSION:8/unsigned-little,
               ?PROTO_CMD_REG:8/unsigned-little,
               NameLen:8/unsigned-little,
@@ -278,11 +291,17 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
                        status = wait
                       }) ->
     if ResCode =:= ?PROTO_REG_RES_OK ->
-           {noreply, State#state{status = ready}};
+           case timer:apply_interval(
+                  ?HEARTBEAT_INTENSITY,
+                  gen_server, cast, [self(), '$heartbeat']) of
+               {ok, _} -> {noreply, State#state{status = ready}};
+               Err = {error, _} -> {stop, Err, State}
+           end;
        true ->
            {stop, {error, "register fail"}, State}
     end;
-handle_data(_Data, State) -> {noreply, State}.
+handle_data(_Data, State) ->
+    {noreply, State}.
 
 
 handle_continue(_Continue, State) ->

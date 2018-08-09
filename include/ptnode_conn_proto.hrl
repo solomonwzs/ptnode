@@ -24,6 +24,7 @@
 %% |  1  |  1  |    1     |
 %% +-----+-----+----------+
 -define(PROTO_CMD_REG_RES, 16#01).
+
 -define(PROTO_REG_RES_OK, 16#01).
 -define(PROTO_REG_RES_ERR, 16#02).
 
@@ -61,10 +62,40 @@
 %%
 %% master/slaver <-> slaver
 %% +-----+-----+--------+----------+------+--------+-----+---------+-----+
-%% | ver | cmd | req_id | from_len | from | to_len | to  | res_len | res |
+%% | ver | cmd | req_id | from_len | from | to_len | to  | rep_len | rep |
 %% +-----+-----+--------+----------+------+--------+-----+---------+-----+
 %% |  1  |  1  |    4   |    1     |  var |    1   | var |    4    | var |
 %% +-----+-----+--------+----------+------+--------+-----+---------+-----+
 -define(PROTO_CMD_REPLY_REPLY, 16#05).
+
+%% m-s noreply-request (external term format)
+%%
+%% master/slaver <-> slaver
+%% +-----+-----+---------+-----+
+%% | ver | cmd | req_len | req |
+%% +-----+-----+---------+-----+
+%% |  1  |  1  |    4    | var |
+%% +-----+-----+---------+-----+
+-define(PROTO_CMD_MS_NOREPLY_REQUEST, 16#06).
+
+%% m-s reply-request (external term format)
+%%
+%% master/slaver <-> slaver
+%% +-----+-----+--------+---------+-----+
+%% | ver | cmd | req_id | req_len | req |
+%% +-----+-----+--------+---------+-----+
+%% |  1  |  1  |    4   |    4    | var |
+%% +-----+-----+--------+---------+-----+
+-define(PROTO_CMD_MS_REPLY_REQUEST, 16#07).
+
+%% m-s reply-request reply (external term format)
+%%
+%% master/slaver <-> slaver
+%% +-----+-----+--------+---------+-----+
+%% | ver | cmd | req_id | rep_len | rep |
+%% +-----+-----+--------+---------+-----+
+%% |  1  |  1  |    4   |    4    | var |
+%% +-----+-----+--------+---------+-----+
+-define(PROTO_CMD_MS_REPLY_REPLY, 16#08).
 
 -endif.

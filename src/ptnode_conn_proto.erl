@@ -3,7 +3,8 @@
 -include("ptnode_conn_proto.hrl").
 
 -export([wrap_register_cmd/2,
-         wrap_register_res_cmd/1
+         wrap_register_res_cmd/1,
+         wrap_heartbeat_cmd/0
         ]).
 
 wrap_register_cmd(Name, Cookie) when is_atom(Name) ->
@@ -30,4 +31,10 @@ wrap_register_res_cmd(ResCode)
     <<?PROTO_VERSION:8/unsigned-little,
       ?PROTO_CMD_REG_RES:8/unsigned-little,
       ResCode:8/unsigned-little
+    >>.
+
+
+wrap_heartbeat_cmd() ->
+    <<?PROTO_VERSION:8/unsigned-little,
+      ?PROTO_CMD_HEARTBEAT:8/unsigned-little
     >>.
