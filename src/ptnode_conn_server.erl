@@ -23,7 +23,7 @@
 
 -record(state, {
           role              :: master | slaver,
-          slaver_name       :: atom(),
+          slaver_name       :: bitstring(),
           cookie            :: bitstring(),
           sup               :: supervisor:sup_ref() | undefined,
           protocol_module   :: module(),
@@ -31,7 +31,8 @@
           server_args       :: any(),
           server_module     :: module(),
           socket            :: ptnode_proto:socket() | undefined,
-          status            :: wait | ready
+          req_id = 0        :: pos_integer(),
+          status = wait     :: wait | ready
          }).
 
 -define(RECONN_WAIT_TIME,
@@ -88,15 +89,12 @@ init([master, NodeOpts, ProtoOpts, ServSpec,
                       gen_server, cast, [self(), '$reg_timeout']),
     {ok, #state{
             role = master,
-            slaver_name = undefined,
             cookie = maps:get(cookie, NodeOpts),
             sup = MasterSupRef,
             protocol_module = maps:get(module, ProtoOpts),
-            serv_state = undefined,
             server_module = maps:get(module, ServSpec),
             server_args = maps:get(init_args, ServSpec),
-            socket = Socket,
-            status = wait
+            socket = Socket
            }};
 init([slaver, NodeOpts, ProtoOpts, ServSpec, SupRef]) ->
     ProtoModule = maps:get(module, ProtoOpts),
@@ -116,15 +114,12 @@ init([slaver, NodeOpts, ProtoOpts, ServSpec, SupRef]) ->
 
     {ok, #state{
             role = slaver,
-            slaver_name = Name,
+            slaver_name = ?a2b(Name),
             cookie = Cookie,
             sup = SupRef,
             protocol_module = ProtoModule,
-            serv_state = undefined,
             server_args = ServArgs,
-            server_module = ServModule,
-            socket = undefined,
-            status = wait
+            server_module = ServModule
            }}.
 
 
@@ -161,8 +156,10 @@ handle_cast('$heartbeat', State = #state{
         ok -> {noreply, State};
         Err = {error, _} -> {stop, Err, State}
     end;
+
 handle_cast('$reg_timeout', State = #state{status = wait}) ->
     {stop, {error, "register timeout"}, State};
+
 handle_cast({'$conn_master', Host, Port, ConnectOpts, Timeout},
             State = #state{
                        role = slaver,
@@ -188,9 +185,35 @@ handle_cast({'$conn_master', Host, Port, ConnectOpts, Timeout},
             timer:sleep(?RECONN_WAIT_TIME),
             {stop, Err, State}
     end;
-% handle_cast({'$serv_cast', Req}, State) ->
-%     handle_noreply(handle_cast, Req, State);
-handle_cast(_Req, State) ->
+
+handle_cast({'$forward', Data},
+            State = #state{
+                       role = master,
+                       protocol_module = ProtoModule,
+                       socket = Socket,
+                       status = ready
+                      }) ->
+    case ProtoModule:send(Socket, Data) of
+        ok -> {noreply, State};
+        Err = {error, _} -> {stop, Err, State}
+    end;
+
+handle_cast({'$noreply_request', To, Req},
+            State = #state{
+                       role = slaver,
+                       protocol_module = ProtoModule,
+                       socket = Socket,
+                       status = ready
+                      }) ->
+    Cmd = ptnode_conn_proto:wrap_noreply_request(To, Req),
+    case ProtoModule:send(Socket, Cmd) of
+        ok -> {noreply, State};
+        Err = {error, _} -> {stop, Err, State}
+    end;
+
+handle_cast(Req, State) ->
+    ?dlog("~p~n", [Req]),
+    ?dlog("~p~n", [State]),
     {noreply, State}.
 
 
@@ -240,10 +263,11 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
               ?PROTO_CMD_HEARTBEAT:8/unsigned-little
             >>, State) ->
     {noreply, State};
+
 handle_data(<<?PROTO_VERSION:8/unsigned-little,
               ?PROTO_CMD_REG:8/unsigned-little,
               NameLen:8/unsigned-little,
-              BinName:NameLen/binary,
+              Name:NameLen/binary,
               CookieLen:8/unsigned-little,
               Cookie:CookieLen/binary
             >>,
@@ -260,7 +284,6 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
                    ?PROTO_REG_RES_OK),
            case ProtoModule:send(Socket, Cmd) of
                ok ->
-                   Name = binary_to_atom(BinName, utf8),
                    case ptnode_master_sup:register_slaver(
                           MasterSupRef, Name, self()) of
                        ok ->
@@ -282,6 +305,7 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
                     end,
            {stop, Reason, State}
     end;
+
 handle_data(<<?PROTO_VERSION:8/unsigned-little,
               ?PROTO_CMD_REG_RES:8/unsigned-little,
               ResCode:8/unsigned-little
@@ -300,6 +324,49 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
        true ->
            {stop, {error, "register fail"}, State}
     end;
+
+handle_data(Data = <<?PROTO_VERSION:8/unsigned-little,
+                     ?PROTO_CMD_NOREPLY_REQUEST:8/unsigned-little,
+                     ToLen:8/unsigned-little,
+                     To:ToLen/binary,
+                     BLen:?PROTO_TERM_LEN_BITS/unsigned-little,
+                     B:BLen/binary
+                   >>,
+            State = #state{
+                       role = master,
+                       sup = MasterSupRef,
+                       status = ready
+                      }) ->
+    case ptnode_master_sup:get_node_conn(MasterSupRef, To) of
+        master ->
+            case catch binary_to_term(B) of
+                {'EXIT', _} -> do_nothing;
+                Term -> ?dlog("~p~n", [Term])
+            end;
+        Pid when is_pid(Pid) ->
+            gen_server:cast(Pid, {'$forward', Data});
+        {error, _} -> ok
+    end,
+    {noreply, State};
+
+handle_data(<<?PROTO_VERSION:8/unsigned-little,
+              ?PROTO_CMD_NOREPLY_REQUEST:8/unsigned-little,
+              NameLen:8/unsigned-little,
+              Name:NameLen/binary,
+              BLen:?PROTO_TERM_LEN_BITS/unsigned-little,
+              B:BLen/binary
+            >>,
+            State = #state{
+                       role = slaver,
+                       slaver_name = Name,
+                       status = ready
+                      }) ->
+    case catch binary_to_term(B) of
+        {'EXIT', _} -> do_nothing;
+        Term -> ?dlog("~p~n", [Term])
+    end,
+    {noreply, State};
+
 handle_data(_Data, State) ->
     {noreply, State}.
 

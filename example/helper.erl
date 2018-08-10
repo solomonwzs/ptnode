@@ -1,12 +1,19 @@
 -module(helper).
 
--export([start_master/0, stop_master/0]).
--export([start_slaver/0, stop_slaver/0]).
+-export([start/0]).
+
+
+start() ->
+    case node() of
+        'a@127.0.0.1' -> start_master();
+        _ -> start_slaver()
+    end.
 
 
 start_master() ->
     NodeOpts = #{
-      name => example_master,
+      name => node(),
+      role => master,
       cookie => <<"cookie12345">>,
       num_acceptors => 2,
       named_node => true
@@ -24,15 +31,13 @@ start_master() ->
       module => master_echo_server,
       init_args => undefined
      },
-    ptnode:start_master(NodeOpts, ProtoOpts, ServSpec).
-
-
-stop_master() -> ptnode:stop_master(example_master).
+    ptnode:start_node(NodeOpts, ProtoOpts, ServSpec).
 
 
 start_slaver() ->
     NodeOpts = #{
-      name => example_slaver,
+      name => node(),
+      role => slaver,
       cookie => <<"cookie12345">>,
       named_node => true
      },
@@ -47,7 +52,4 @@ start_slaver() ->
       module => master_echo_server,
       init_args => undefined
      },
-    ptnode:start_slaver(NodeOpts, ProtoOpts, ServSpec).
-
-
-stop_slaver() -> ptnode:stop_slaver(example_slaver).
+    ptnode:start_node(NodeOpts, ProtoOpts, ServSpec).

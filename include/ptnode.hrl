@@ -1,3 +1,5 @@
+%% @author Solomon Ng <solomon.wzs@gmail.com>
+
 -ifndef(__PTNODE_HRL).
 -define(__PTNODE_HRL, 1).
 
@@ -11,5 +13,8 @@
 
 -define(MASTER_SUP_RESTART_INTENSITY, 5).
 -define(MASTER_SUP_RESTART_PERIOD, 10).
+
+-define(b2a(Name), binary_to_atom(Name, utf8)).
+-define(a2b(Name), atom_to_binary(Name, utf8)).
 
 -endif.

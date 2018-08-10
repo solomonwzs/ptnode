@@ -12,7 +12,10 @@
          get_mgmt/1,
          get_all_conns/1]).
 -export([register_slaver/3,
-         unregister_slaver/2]).
+         unregister_slaver/2,
+         get_node_conn/2,
+         get_nodes/1
+        ]).
 
 -define(SUP_FLAGS, {one_for_one,
                     ?MASTER_SUP_RESTART_INTENSITY,
@@ -85,6 +88,18 @@ init([NodeOpts, ProtoOpts, ServSpec]) ->
       [ptnode_master_mgmt]
      },
     {ok, {?SUP_FLAGS, [AccepterSup, ConnSup, Mgmt]}}.
+
+
+get_node_conn(MasterSupRef, Name) when is_atom(Name) ->
+    get_node_conn(MasterSupRef, ?a2b(Name));
+get_node_conn(MasterSupRef, Name) ->
+    {ok, Mgmt} = get_mgmt(MasterSupRef),
+    gen_server:call(Mgmt, {'$get_node_conn', Name}, 1000).
+
+
+get_nodes(MasterSupRef) ->
+    {ok, Mgmt} = get_mgmt(MasterSupRef),
+    gen_server:call(Mgmt, '$nodes', 1000).
 
 
 register_slaver(MasterSupRef, Name, Pid) ->

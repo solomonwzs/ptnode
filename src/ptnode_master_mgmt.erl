@@ -18,10 +18,10 @@
         ]).
 
 -record(state, {
-          name          ::atom(),
-          cookie        ::bitstring(),
-          master_sup    ::pid(),
-          slavers       ::map()
+          name          :: bitstring(),
+          cookie        :: bitstring(),
+          master_sup    :: pid(),
+          slavers       :: map()
          }).
 
 
@@ -32,7 +32,7 @@ start_link(MasterSupRef, NodeOpts) ->
 
 init([MasterSupRef, NodeOpts]) ->
     {ok, #state{
-            name = maps:get(name, NodeOpts),
+            name = ?a2b(maps:get(name, NodeOpts)),
             cookie = maps:get(cookie, NodeOpts),
             master_sup = MasterSupRef,
             slavers = #{}
@@ -61,14 +61,28 @@ handle_call({'$unregister_slaver', Name}, _From,
     end;
 handle_call('$get_all_slavers', _From, State) ->
     {reply, State#state.slavers, State};
-handle_call({'$get_slaver', Name}, _From,
-            State = #state{
-                       slavers = Slavers
-                      }) ->
+
+handle_call({'$get_node_conn', Name}, _From,
+            State = #state{name = Name}) ->
+    {reply, master, State};
+handle_call({'$get_node_conn', Name}, _From,
+            State = #state{slavers = Slavers}) ->
     case maps:find(Name, Slavers) of
         {ok, Pid} -> {reply, Pid, State};
         error -> {reply, {error, "slaver not exist"}, State}
     end;
+
+handle_call('$nodes', _From,
+            State = #state{
+                       name = Name,
+                       slavers = Slavers
+                      }) ->
+    SlaverList = maps:fold(
+                   fun(K, _, Acc) ->
+                           [{?b2a(K), slaver} | Acc]
+                   end, [], Slavers),
+    {reply, [{?b2a(Name), master} | SlaverList], State};
+
 handle_call(_Req, _From, State) ->
     {reply, undefined, State}.
 

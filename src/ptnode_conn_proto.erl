@@ -4,7 +4,8 @@
 
 -export([wrap_register_cmd/2,
          wrap_register_res_cmd/1,
-         wrap_heartbeat_cmd/0
+         wrap_heartbeat_cmd/0,
+         wrap_noreply_request/2
         ]).
 
 wrap_register_cmd(Name, Cookie) when is_atom(Name) ->
@@ -37,4 +38,17 @@ wrap_register_res_cmd(ResCode)
 wrap_heartbeat_cmd() ->
     <<?PROTO_VERSION:8/unsigned-little,
       ?PROTO_CMD_HEARTBEAT:8/unsigned-little
+    >>.
+
+
+wrap_noreply_request(To, Req) when is_atom(To) ->
+    wrap_noreply_request(atom_to_binary(To, utf8), Req);
+wrap_noreply_request(To, Req) ->
+    B = term_to_binary(Req),
+    <<?PROTO_VERSION:8/unsigned-little,
+      ?PROTO_CMD_NOREPLY_REQUEST:8/unsigned-little,
+      (size(To)):8/unsigned-little,
+      To/binary,
+      (size(B)):?PROTO_TERM_LEN_BITS/unsigned-little,
+      B/binary
     >>.

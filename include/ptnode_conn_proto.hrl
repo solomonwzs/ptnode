@@ -1,3 +1,5 @@
+%% @author Solomon Ng <solomon.wzs@gmail.com>
+
 -ifndef(__PTNODE_CONN_PROTO).
 -define(__PTNODE_CONN_PROTO, 1).
 
@@ -40,32 +42,32 @@
 
 %% noreply-request (external term format)
 %%
-%% master/slaver <-> slaver
+%% master <-- slaver
 %% +-----+-----+--------+-----+---------+-----+
 %% | ver | cmd | to_len | to  | req_len | req |
 %% +-----+-----+--------+-----+---------+-----+
-%% |  1  |  1  |    1   | var |    4    | var |
+%% |  1  |  1  |    1   | var |    2    | var |
 %% +-----+-----+--------+-----+---------+-----+
 -define(PROTO_CMD_NOREPLY_REQUEST, 16#03).
 
 %% reply-request (external term format)
 %%
-%% master/slaver <-> slaver
-%% +-----+-----+--------+----------+------+--------+-----+---------+-----+
-%% | ver | cmd | req_id | from_len | from | to_len | to  | req_len | req |
-%% +-----+-----+--------+----------+------+--------+-----+---------+-----+
-%% |  1  |  1  |    4   |    1     |  var |    1   | var |    4    | var |
-%% +-----+-----+--------+----------+------+--------+-----+---------+-----+
+%% master <-- slaver
+%% +-----+-----+--------+--------+-----+---------+-----+
+%% | ver | cmd | req_id | to_len | to  | req_len | req |
+%% +-----+-----+--------+--------+-----+---------+-----+
+%% |  1  |  1  |    4   |    1   | var |    2    | var |
+%% +-----+-----+--------+--------+-----+---------+-----+
 -define(PROTO_CMD_REPLY_REQUEST, 16#04).
 
 %% reply-request reply (external term format)
 %%
-%% master/slaver <-> slaver
-%% +-----+-----+--------+----------+------+--------+-----+---------+-----+
-%% | ver | cmd | req_id | from_len | from | to_len | to  | rep_len | rep |
-%% +-----+-----+--------+----------+------+--------+-----+---------+-----+
-%% |  1  |  1  |    4   |    1     |  var |    1   | var |    4    | var |
-%% +-----+-----+--------+----------+------+--------+-----+---------+-----+
+%% master <-- slaver
+%% +-----+-----+--------+--------+-----+-----------+-------+
+%% | ver | cmd | req_id | to_len | to  | reply_len | reply |
+%% +-----+-----+--------+--------+-----+-----------+-------+
+%% |  1  |  1  |    4   |    1   | var |     2     |  var  |
+%% +-----+-----+--------+--------+-----+-----------+-------+
 -define(PROTO_CMD_REPLY_REPLY, 16#05).
 
 %% m-s noreply-request (external term format)
@@ -74,7 +76,7 @@
 %% +-----+-----+---------+-----+
 %% | ver | cmd | req_len | req |
 %% +-----+-----+---------+-----+
-%% |  1  |  1  |    4    | var |
+%% |  1  |  1  |    2    | var |
 %% +-----+-----+---------+-----+
 -define(PROTO_CMD_MS_NOREPLY_REQUEST, 16#06).
 
@@ -84,18 +86,20 @@
 %% +-----+-----+--------+---------+-----+
 %% | ver | cmd | req_id | req_len | req |
 %% +-----+-----+--------+---------+-----+
-%% |  1  |  1  |    4   |    4    | var |
+%% |  1  |  1  |    4   |    2    | var |
 %% +-----+-----+--------+---------+-----+
 -define(PROTO_CMD_MS_REPLY_REQUEST, 16#07).
 
 %% m-s reply-request reply (external term format)
 %%
 %% master/slaver <-> slaver
-%% +-----+-----+--------+---------+-----+
-%% | ver | cmd | req_id | rep_len | rep |
-%% +-----+-----+--------+---------+-----+
-%% |  1  |  1  |    4   |    4    | var |
-%% +-----+-----+--------+---------+-----+
+%% +-----+-----+--------+-----------+-------+
+%% | ver | cmd | req_id | reply_len | reply |
+%% +-----+-----+--------+-----------+-------+
+%% |  1  |  1  |    4   |     2     |  var  |
+%% +-----+-----+--------+-----------+-------+
 -define(PROTO_CMD_MS_REPLY_REPLY, 16#08).
+
+-define(PROTO_TERM_LEN_BITS, 16).
 
 -endif.
