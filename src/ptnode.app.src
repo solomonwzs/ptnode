@@ -1,13 +1,13 @@
+%% -*- mode: erlang -*-
+
 {application, ptnode,
- [
-  {description, ""},
+ [{description, ""},
   {vsn, "1"},
   {registered, []},
-  {applications, [
-                  kernel,
+  {applications, [kernel,
                   stdlib,
                   ssl
                  ]},
-  {mod, { ptnode_app, []}},
+  {mod, {ptnode_app, []}},
   {env, []}
  ]}.

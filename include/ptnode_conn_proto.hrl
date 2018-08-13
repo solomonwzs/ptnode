@@ -102,4 +102,6 @@
 
 -define(PROTO_TERM_LEN_BITS, 16).
 
+-define(PROTO_MAX_REQ_ID, 16#ffffffff).
+
 -endif.

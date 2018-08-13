@@ -24,7 +24,7 @@ start_link(NodeOpts, ProtoOpts, ServSpec) ->
 
 init([NodeOpts, ProtoOpts, ServSpec]) ->
     Spec = {
-      '$slaver',
+      ?SLAVER_CONN_ID,
       {ptnode_conn_server, start_slaver_conn_link,
        [NodeOpts, ProtoOpts, ServSpec, self()]},
       permanent,

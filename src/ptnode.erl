@@ -32,11 +32,13 @@
        }.
 -export_type([serv_spec/0]).
 
+-type ptnode_serv_ref() :: {Name::atom(), To::atom()}.
+
 -export([start/0, stop/0]).
 -export([start_node/3, stop_node/1]).
 -export([node_role/1,
-         get_nodes/1,
-         cast/3
+         call/3,
+         cast/2
         ]).
 
 
@@ -107,43 +109,44 @@ get_node_sup_pid(Name) when is_atom(Name) ->
     end.
 
 
-% get_mgmt(Name) when is_atom(Name) ->
-%     case get_node_sup_pid(Name) of
-%         {ok, Pid} -> ptnode_master_sup:get_mgmt(Pid);
-%         Err = {error, _} -> Err
-%     end.
-
-
--spec(get_nodes(atom()) -> {ok, map()} | {error, any()}).
-get_nodes(Name) ->
+-spec(call(ptnode_serv_ref(), term(), pos_integer() | infinity) -> term()).
+call(ServerRef = {Name, _}, Req, Timeout) ->
     case node_role(Name) of
-        master -> get_nodes(master, Name);
-        slaver -> get_nodes(slaver, Name);
+        master -> call(master, ServerRef, Req, Timeout);
+        slaver -> call(slaver, ServerRef, Req, Timeout);
         Err = {error, _} -> Err
     end.
 
 
-get_nodes(master, Name) ->
-    case get_node_sup_pid(Name) of
-        {ok, Pid} -> ptnode_master_sup:get_nodes(Pid);
-        Err = {error, _} -> Err
-    end.
+call(master, _ServerRef, _Req, _Timeout) -> ok;
+call(slaver, _ServerRef, _Req, _Timeout) -> {error, not_implement}.
 
 
--spec(cast(atom(), atom(), term()) -> ok | {error, any()}).
-cast(Name, Node, Req) ->
+-spec(cast(ptnode_serv_ref(), term()) -> ok | {error, any()}).
+cast(ServerRef = {Name, _}, Req) ->
     case node_role(Name) of
-        master -> cast(master, Name, Node, Req);
-        slaver -> cast(slaver, Name, Node, Req);
+        master -> cast(master, ServerRef, Req);
+        slaver -> cast(slaver, ServerRef, Req);
         Err = {error, _} -> Err
     end.
 
 
-cast(master, Name, Node, Req) ->
+cast(master, {Name, To}, Req) ->
     case get_node_sup_pid(Name) of
         {ok, Pid} ->
-            Serv = ptnode_master_sup:get_node_conn(Pid, Node),
-            Cmd = ptnode_conn_proto:wrap_noreply_request(Node, Req),
-            gen_server:cast(Serv, {'$forward', Cmd});
+            case ptnode_master_sup:get_node_conn(Pid, To) of
+                master -> {error, master};
+                Serv ->
+                    Cmd = ptnode_conn_proto:wrap_noreply_request(Req),
+                    gen_server:cast(Serv, {'$send', Cmd})
+            end;
+        Err = {error, _} -> Err
+    end;
+cast(slaver, {Name, To0}, Req) ->
+    case get_node_sup_pid(Name) of
+        {ok, Pid} ->
+            {ok, Serv} = ?get_slaver_conn(Pid),
+            To = atom_to_binary(To0, utf8),
+            gen_server:cast(Serv, {'$noreply_request', To, Req});
         Err = {error, _} -> Err
     end.

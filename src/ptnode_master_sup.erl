@@ -8,9 +8,6 @@
 
 -export([start_link/3]).
 -export([init/1]).
--export([get_conn_sup/1,
-         get_mgmt/1,
-         get_all_conns/1]).
 -export([register_slaver/3,
          unregister_slaver/2,
          get_node_conn/2,
@@ -34,37 +31,9 @@ start_link(NodeOpts, ProtoOpts, ServSpec) ->
     end.
 
 
--spec(get_conn_sup(supervisor:sup_ref())
-      -> {ok, pid()} | {error, any()}).
-get_conn_sup(MasterSupRef) ->
-    Children = supervisor:which_children(MasterSupRef),
-    get_child(Children, '$conn_sup').
-
-
--spec(get_mgmt(supervisor:sup_ref())
-      -> {ok, pid()} | {error, any()}).
-get_mgmt(MasterSupRef) ->
-    Children = supervisor:which_children(MasterSupRef),
-    get_child(Children, '$mgmt').
-
-
-get_child([], _) -> {error, "not found"};
-get_child([{ID, Ref, _, _} | _], ID) -> {ok, Ref};
-get_child([_ | Tail], ID) -> get_child(Tail, ID).
-
-
--spec(get_all_conns(supervisor:sup_ref())
-      -> {ok, list()} | {error, any()}).
-get_all_conns(MasterSupRef) ->
-    case get_conn_sup(MasterSupRef) of
-        {ok, Ref} -> {ok, supervisor:which_children(Ref)};
-        Err -> Err
-    end.
-
-
 init([NodeOpts, ProtoOpts, ServSpec]) ->
     AccepterSup = {
-      '$accepter_sup',
+      ?MASTER_ACCEPTER_SUP_ID,
       {ptnode_master_accepter_sup, start_link,
        [self(), NodeOpts, ProtoOpts]},
       permanent,
@@ -72,7 +41,7 @@ init([NodeOpts, ProtoOpts, ServSpec]) ->
       supervisor,
       [ptnode_master_accepter_sup]},
     ConnSup = {
-      '$conn_sup',
+      ?MASTER_CONN_SUP_ID,
       {ptnode_master_conn_sup, start_link, [NodeOpts, ProtoOpts, ServSpec]},
       permanent,
       5000,
@@ -80,7 +49,7 @@ init([NodeOpts, ProtoOpts, ServSpec]) ->
       [ptnode_conn_sup]
      },
     Mgmt = {
-      '$mgmt',
+      ?MASTER_MGMT_ID,
       {ptnode_master_mgmt, start_link, [self(), NodeOpts]},
       permanent,
       5000,
@@ -93,22 +62,22 @@ init([NodeOpts, ProtoOpts, ServSpec]) ->
 get_node_conn(MasterSupRef, Name) when is_atom(Name) ->
     get_node_conn(MasterSupRef, ?a2b(Name));
 get_node_conn(MasterSupRef, Name) ->
-    {ok, Mgmt} = get_mgmt(MasterSupRef),
+    {ok, Mgmt} = ?get_master_mgmt(MasterSupRef),
     gen_server:call(Mgmt, {'$get_node_conn', Name}, 1000).
 
 
 get_nodes(MasterSupRef) ->
-    {ok, Mgmt} = get_mgmt(MasterSupRef),
+    {ok, Mgmt} = ?get_master_mgmt(MasterSupRef),
     gen_server:call(Mgmt, '$nodes', 1000).
 
 
 register_slaver(MasterSupRef, Name, Pid) ->
-    {ok, Mgmt} = get_mgmt(MasterSupRef),
+    {ok, Mgmt} = ?get_master_mgmt(MasterSupRef),
     gen_server:call(Mgmt, {'$register_slaver', Name, Pid}).
 
 
 unregister_slaver(MasterSupRef, Name) ->
-    case get_mgmt(MasterSupRef) of
+    case ?get_master_mgmt(MasterSupRef) of
         {ok, Mgmt} ->
             gen_server:call(Mgmt, {'$unregister_slaver', Name});
         _ -> ok

@@ -1,4 +1,6 @@
--module(helper).
+%% @author Solomon Ng <solomon.wzs@gmail.com>
+
+-module(example_helper).
 
 -export([start/0]).
 
@@ -28,7 +30,7 @@ start_master() ->
       handshake_opts => []
      },
     ServSpec = #{
-      module => master_echo_server,
+      module => example_conn_server,
       init_args => undefined
      },
     ptnode:start_node(NodeOpts, ProtoOpts, ServSpec).
@@ -49,7 +51,7 @@ start_slaver() ->
       timeout => infinity
      },
     ServSpec = #{
-      module => master_echo_server,
+      module => example_conn_server,
       init_args => undefined
      },
     ptnode:start_node(NodeOpts, ProtoOpts, ServSpec).

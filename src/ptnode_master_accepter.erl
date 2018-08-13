@@ -48,7 +48,7 @@ handshake(MasterSupRef, SslSocket,
 
 
 get_conn_sup(MasterSupRef, Socket, ProtoModule) ->
-    case ptnode_master_sup:get_conn_sup(MasterSupRef) of
+    case ?get_master_conn_sup(MasterSupRef) of
         {ok, SupRef} ->
             start_conn_server(MasterSupRef, SupRef, Socket, ProtoModule);
         Err ->
@@ -62,7 +62,13 @@ start_conn_server(MasterSupRef, SupRef, Socket, ProtoModule) ->
            SupRef, [{MasterSupRef, Socket}]) of
         {ok, Ref} when is_pid(Ref) ->
             case ProtoModule:controlling_process(Socket, Ref) of
-                ok -> init_serv(Ref);
+                ok ->
+                    case ProtoModule:setopts(Socket, [{active, true}]) of
+                        ok -> ok;
+                        Err = {error, _} ->
+                            ?dlog("~p~n", [Err]),
+                            ProtoModule:close(Socket)
+                    end;
                 Err ->
                     ?dlog("~p~n", [Err]),
                     ProtoModule:close(Socket)
@@ -70,13 +76,4 @@ start_conn_server(MasterSupRef, SupRef, Socket, ProtoModule) ->
         Err ->
             ?dlog("~p~n", [Err]),
             ProtoModule:close(Socket)
-    end.
-
-
-init_serv(Ref) ->
-    case gen_server:call(Ref, '$init_serv') of
-        ok -> ok;
-        Err = {error, _} ->
-            ?dlog("~p~n", [Err]),
-            Ref ! '$stop'
     end.

@@ -17,4 +17,20 @@
 -define(b2a(Name), binary_to_atom(Name, utf8)).
 -define(a2b(Name), atom_to_binary(Name, utf8)).
 
+-define(MASTER_MGMT_ID, '$mgmt').
+-define(MASTER_CONN_SUP_ID, '$conn_sup').
+-define(MASTER_ACCEPTER_SUP_ID, '$accepter_sup').
+-define(SLAVER_CONN_ID, '$slaver').
+
+-define(NOW_SECS, erlang:system_time(second)).
+
+-define(get_master_mgmt(MasterSupRef),
+        ptnode_sup:get_child(MasterSupRef, ?MASTER_MGMT_ID)).
+
+-define(get_master_conn_sup(MasterSupRef),
+        ptnode_sup:get_child(MasterSupRef, ?MASTER_CONN_SUP_ID)).
+
+-define(get_slaver_conn(SlaverSupRef),
+        ptnode_sup:get_child(SlaverSupRef, ?SLAVER_CONN_ID)).
+
 -endif.
