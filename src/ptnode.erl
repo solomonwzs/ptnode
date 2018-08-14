@@ -105,48 +105,65 @@ get_node_sup_pid(Name) when is_atom(Name) ->
     Children = supervisor:which_children(ptnode_sup),
     case lists:keyfind(ChildId, 1, Children) of
         {_, Pid, supervisor, _} -> {ok, Pid};
-        _ -> {error, not_found}
+        _ -> {error, supervisor_not_found}
     end.
 
 
--spec(call(ptnode_serv_ref(), term(), pos_integer() | infinity) -> term()).
-call(ServerRef = {Name, _}, Req, Timeout) ->
-    case node_role(Name) of
-        master -> call(master, ServerRef, Req, Timeout);
-        slaver -> call(slaver, ServerRef, Req, Timeout);
-        Err = {error, _} -> Err
-    end.
-
-
-call(master, _ServerRef, _Req, _Timeout) -> ok;
-call(slaver, _ServerRef, _Req, _Timeout) -> {error, not_implement}.
-
-
--spec(cast(ptnode_serv_ref(), term()) -> ok | {error, any()}).
-cast(ServerRef = {Name, _}, Req) ->
-    case node_role(Name) of
-        master -> cast(master, ServerRef, Req);
-        slaver -> cast(slaver, ServerRef, Req);
-        Err = {error, _} -> Err
-    end.
-
-
-cast(master, {Name, To}, Req) ->
+get_node_serv(master, {Name, To}) ->
     case get_node_sup_pid(Name) of
         {ok, Pid} ->
             case ptnode_master_sup:get_node_conn(Pid, To) of
                 master -> {error, master};
-                Serv ->
-                    Cmd = ptnode_conn_proto:wrap_noreply_request(Req),
-                    gen_server:cast(Serv, {'$send', Cmd})
+                Err = {error, _} -> Err;
+                Serv -> {ok, Serv}
             end;
         Err = {error, _} -> Err
     end;
-cast(slaver, {Name, To0}, Req) ->
+get_node_serv(slaver, {Name, _}) ->
     case get_node_sup_pid(Name) of
-        {ok, Pid} ->
-            {ok, Serv} = ?get_slaver_conn(Pid),
-            To = atom_to_binary(To0, utf8),
-            gen_server:cast(Serv, {'$noreply_request', To, Req});
+        {ok, Pid} -> ?get_slaver_conn(Pid);
         Err = {error, _} -> Err
+    end.
+
+
+-spec(call(ptnode_serv_ref(), term(), pos_integer() | infinity) -> term()).
+call(ServerRef = {Name, To}, Req, Timeout) ->
+    case node_role(Name) of
+        Err = {error, _} -> Err;
+        Role ->
+            case get_node_serv(Role, ServerRef) of
+                {ok, Serv} ->
+                    ReplyReq =
+                    if Role =:= master -> {'$reply_request', Req};
+                       Role =:= slaver -> {'$reply_request', ?a2b(To), Req}
+                    end,
+                    case gen_server:call(Serv, ReplyReq, Timeout) of
+                        {ok, Mark} ->
+                            receive
+                                {Mark, Reply} -> Reply
+                            after Timeout -> {error, timeout}
+                            end;
+                        Err = {error, _} -> Err
+                    end;
+                Err = {error, _} -> Err
+            end
+    end.
+
+
+-spec(cast(ptnode_serv_ref(), term()) -> ok | {error, any()}).
+cast(ServerRef = {Name, To}, Req) ->
+    case node_role(Name) of
+        Err = {error, _} -> Err;
+        Role ->
+            case get_node_serv(Role, ServerRef) of
+                {ok, Serv} ->
+                    NoreplyReq =
+                    if Role =:= master ->
+                           {'$noreply_request', Req};
+                       Role =:= slaver ->
+                           {'$noreply_request', ?a2b(To), Req}
+                    end,
+                    gen_server:cast(Serv, NoreplyReq);
+                Err = {error, _} -> Err
+            end
     end.

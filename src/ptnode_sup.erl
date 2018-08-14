@@ -38,6 +38,6 @@ get_child(SupRef, ChildId) ->
     get_child0(Children, ChildId).
 
 
-get_child0([], _) -> {error, not_found};
+get_child0([], _) -> {error, child_not_found};
 get_child0([{ID, Ref, _, _} | _], ID) -> {ok, Ref};
 get_child0([_ | Tail], ID) -> get_child0(Tail, ID).

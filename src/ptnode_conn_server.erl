@@ -28,6 +28,7 @@
 
 -record(state, {
           role              :: master | slaver,
+          master_name       :: bitstring() | undefined,
           slaver_name       :: bitstring() | undefined,
           cookie            :: bitstring(),
           sup               :: supervisor:sup_ref() | undefined,
@@ -49,6 +50,16 @@
 
 -define(mark(ReqId), {self(), ReqId}).
 
+-define(node_name(State),
+        if State#state.role =:= master -> State#state.master_name;
+           true -> State#state.slaver_name
+        end).
+
+-define(next_req_id(Id),
+        if Id =:= ?PROTO_MAX_REQ_ID -> 0;
+           true -> Id + 1
+        end).
+
 
 %% behaviour callback
 -callback init(Args::any()) -> {ok, State::any()} | {stop, Reason::any()}.
@@ -63,10 +74,6 @@
 
 -callback terminate(Reason::any(), ServState::any()) -> any().
 %%
-
-
-next_req_id(ID) when ID =:= ?PROTO_MAX_REQ_ID -> 0;
-next_req_id(ID) -> ID + 1.
 
 
 -spec(start_master_conn_link(ptnode:node_opts(), ptnode:proto_opts(),
@@ -91,6 +98,7 @@ init([master, NodeOpts, ProtoOpts, ServSpec,
                       gen_server, cast, [self(), '$reg_timeout']),
     {ok, #state{
             role = master,
+            master_name = ?a2b(maps:get(name, NodeOpts)),
             cookie = maps:get(cookie, NodeOpts),
             sup = MasterSupRef,
             protocol_module = maps:get(module, ProtoOpts),
@@ -127,25 +135,23 @@ init([slaver, NodeOpts, ProtoOpts, ServSpec, SupRef]) ->
 
 handle_call({'$reply_request', Req}, {Pid, _},
             State = #state{
+                       role = master,
+                       master_name = Name,
                        req_id = ReqId,
-                       waiters = Waiters,
-                       socket = Socket,
-                       protocol_module = ProtoModule,
                        status = ready
                       }) ->
-    Cmd = ptnode_conn_proto:wrap_reply_request(ReqId, Req),
-    case ProtoModule:send(Socket, Cmd) of
-        ok ->
-            NewWaiters = maps:put(ReqId, #waiter{
-                                            from = Pid
-                                           }, Waiters),
-            {reply, {ok, ?mark(ReqId)},
-             State#state{
-               req_id = next_req_id(ReqId),
-               waiters = NewWaiters
-              }};
-        Err = {error, _} -> {stop, Err, State}
-    end;
+    Cmd = ptnode_conn_proto:wrap_reply_request(ReqId, Name, Req),
+    reply_request(ReqId, Cmd, Pid, State);
+
+handle_call({'$reply_request', To, Req}, {Pid, _},
+            State = #state{
+                       role = slaver,
+                       slaver_name = Name,
+                       req_id = ReqId,
+                       status = ready
+                      }) ->
+    Cmd = ptnode_conn_proto:wrap_reply_request(ReqId, Name, To, Req),
+    reply_request(ReqId, Cmd, Pid, State);
 
 handle_call('$stop', _From, State) ->
     {stop, normal, ok, State};
@@ -155,12 +161,13 @@ handle_call(_Req, _From, State) ->
     {reply, undefined, State}.
 
 
-handle_cast('$heartbeat', State = #state{
-                                     protocol_module = ProtoModule,
-                                     socket = Socket,
-                                     status = ready
-                                    }) ->
-    Cmd = ptnode_conn_proto:wrap_heartbeat_cmd(),
+handle_cast('$heartbeat',
+            State = #state{
+                       protocol_module = ProtoModule,
+                       socket = Socket,
+                       status = ready
+                      }) ->
+    Cmd = ptnode_conn_proto:wrap_heartbeat(),
     case ProtoModule:send(Socket, Cmd) of
         ok -> {noreply, State};
         Err = {error, _} -> {stop, Err, State}
@@ -179,7 +186,7 @@ handle_cast({'$conn_master', Host, Port, ConnectOpts, Timeout},
     case ProtoModule:connect(Host, Port, ConnectOpts, Timeout) of
         {ok, Socket} ->
             NewState = State#state{socket = Socket},
-            Cmd = ptnode_conn_proto:wrap_register_cmd(Name, Cookie),
+            Cmd = ptnode_conn_proto:wrap_register(Name, Cookie),
             case ProtoModule:send(Socket, Cmd) of
                 ok ->
                     timer:apply_after(?PROTO_REG_TIMEOUT,
@@ -213,15 +220,10 @@ handle_cast({'$send', Data},
 handle_cast({'$noreply_request', Req},
             State = #state{
                        role = master,
-                       protocol_module = ProtoModule,
-                       socket = Socket,
                        status = ready
                       }) ->
     Cmd = ptnode_conn_proto:wrap_noreply_request(Req),
-    case ProtoModule:send(Socket, Cmd) of
-        ok -> {noreply, State};
-        Err = {error, _} -> {stop, Err, State}
-    end;
+    noreply_request(Cmd, State);
 
 handle_cast({'$noreply_request', To, Req},
             State = #state{
@@ -233,15 +235,10 @@ handle_cast({'$noreply_request', To, Req},
 handle_cast({'$noreply_request', To, Req},
             State = #state{
                        role = slaver,
-                       protocol_module = ProtoModule,
-                       socket = Socket,
                        status = ready
                       }) ->
     Cmd = ptnode_conn_proto:wrap_noreply_request(To, Req),
-    case ProtoModule:send(Socket, Cmd) of
-        ok -> {noreply, State};
-        Err = {error, _} -> {stop, Err, State}
-    end;
+    noreply_request(Cmd, State);
 
 handle_cast(Req, State) ->
     ?dlog("~p~n", [Req]),
@@ -289,20 +286,13 @@ handle_reply(Req, From,
     end.
 
 
-handle_data(<<?PROTO_VERSION:8/unsigned-little,
-              ?PROTO_CMD_HEARTBEAT:8/unsigned-little
-            >>, State) ->
+handle_data(?PROTO_P_HEARTBEAT, State) ->
     {noreply, State};
 
-handle_data(<<?PROTO_VERSION:8/unsigned-little,
-              ?PROTO_CMD_REG:8/unsigned-little,
-              NameLen:8/unsigned-little,
-              Name:NameLen/binary,
-              CookieLen:8/unsigned-little,
-              Cookie:CookieLen/binary
-            >>,
+handle_data(?PROTO_P_REG(NameLen, Name, CookieLen, Cookie),
             State = #state{
                        role = master,
+                       master_name = MasterName,
                        sup = MasterSupRef,
                        protocol_module = ProtoModule,
                        socket = Socket,
@@ -310,8 +300,7 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
                        status = wait
                       }) ->
     if MasterCookie =:= Cookie ->
-           Cmd = ptnode_conn_proto:wrap_register_res_cmd(
-                   ?PROTO_REG_RES_OK),
+           Cmd = ptnode_conn_proto:wrap_register_res(MasterName),
            case ProtoModule:send(Socket, Cmd) of
                ok ->
                    case ptnode_master_sup:register_slaver(
@@ -326,42 +315,25 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
                    end;
                Err = {error, _} -> {stop, Err, State}
            end;
-       true ->
-           Cmd = ptnode_conn_proto:wrap_register_res_cmd(
-                   ?PROTO_REG_RES_ERR),
-           Reason = case ProtoModule:send(Socket, Cmd) of
-                        ok -> {error, "register error"};
-                        Err = {error, _} -> Err
-                    end,
-           {stop, Reason, State}
+       true -> {stop, {error, register_fail}, State}
     end;
 
-handle_data(<<?PROTO_VERSION:8/unsigned-little,
-              ?PROTO_CMD_REG_RES:8/unsigned-little,
-              ResCode:8/unsigned-little
-            >>,
+handle_data(?PROTO_P_REG_RES(NameLen, Name),
             State = #state{
                        role = slaver,
                        status = wait
                       }) ->
-    if ResCode =:= ?PROTO_REG_RES_OK ->
-           case timer:apply_interval(
-                  ?HEARTBEAT_INTENSITY,
-                  gen_server, cast, [self(), '$heartbeat']) of
-               {ok, _} -> serv_init(State#state{status = ready});
-               Err = {error, _} -> {stop, Err, State}
-           end;
-       true ->
-           {stop, {error, "register fail"}, State}
+    case timer:apply_interval(
+           ?HEARTBEAT_INTENSITY,
+           gen_server, cast, [self(), '$heartbeat']) of
+        {ok, _} -> serv_init(State#state{
+                               master_name = Name,
+                               status = ready
+                              });
+        Err = {error, _} -> {stop, Err, State}
     end;
 
-handle_data(<<?PROTO_VERSION:8/unsigned-little,
-              ?PROTO_CMD_NOREPLY_REQUEST:8/unsigned-little,
-              ToLen:8/unsigned-little,
-              To:ToLen/binary,
-              BLen:?PROTO_TERM_LEN_BITS/unsigned-little,
-              B:BLen/binary
-            >>,
+handle_data(?PROTO_P_NOREPLY_REQUEST(ToLen, To, BLen, B),
             State = #state{
                        role = master,
                        sup = MasterSupRef,
@@ -381,13 +353,7 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
     end,
     {noreply, State};
 
-handle_data(<<?PROTO_VERSION:8/unsigned-little,
-              ?PROTO_CMD_NOREPLY_REQUEST:8/unsigned-little,
-              NameLen:8/unsigned-little,
-              Name:NameLen/binary,
-              BLen:?PROTO_TERM_LEN_BITS/unsigned-little,
-              B:BLen/binary
-            >>,
+handle_data(?PROTO_P_NOREPLY_REQUEST(NameLen, Name, BLen, B),
             State = #state{
                        role = slaver,
                        slaver_name = Name,
@@ -398,35 +364,21 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
         Term -> serv_handle_cast(Term, State)
     end;
 
-handle_data(<<?PROTO_VERSION:8/unsigned-little,
-              ?PROTO_CMD_MS_NOREPLY_REQUEST:8/unsigned-little,
-              BLen:?PROTO_TERM_LEN_BITS/unsigned-little,
-              B:BLen/binary
-            >>,
+handle_data(?PROTO_P_MS_NOREPLY_REQUEST(BLen, B),
             State = #state{status = ready}) ->
     case catch binary_to_term(B) of
         {'EXIT', _} -> {noreply, State};
         Term -> serv_handle_cast(Term, State)
     end;
 
-handle_data(<<?PROTO_VERSION:8/unsigned-little,
-              ?PROTO_CMD_MS_REPLY_REQUEST:8/unsigned-little,
-              ReqId:32/unsigned-little,
-              BLen:?PROTO_TERM_LEN_BITS/unsigned-little,
-              B:BLen/binary
-            >>,
+handle_data(?PROTO_P_MS_REPLY_REQUEST(ReqId, FromLen, From, BLen, B),
             State = #state{status = ready}) ->
     case catch binary_to_term(B) of
         {'EXIT', _} -> {noreply, State};
-        Term -> serv_handle_call(ReqId, Term, undefined, State)
+        Term -> serv_handle_call(ReqId, Term, ?b2a(From), State)
     end;
 
-handle_data(<<?PROTO_VERSION:8/unsigned-little,
-              ?PROTO_CMD_REPLY_REPLY:8/unsigned-little,
-              ReqId:32/unsigned-little,
-              BLen:?PROTO_TERM_LEN_BITS/unsigned-little,
-              B:BLen/binary
-            >>,
+handle_data(?PROTO_P_MS_REPLY_REPLY(ReqId, BLen, B),
             State = #state{
                        waiters = Waiters,
                        status = ready
@@ -445,7 +397,8 @@ handle_data(<<?PROTO_VERSION:8/unsigned-little,
             end
     end;
 
-handle_data(_Data, State) ->
+handle_data(Data, State) ->
+    ?dlog("~p~n", [Data]),
     {noreply, State}.
 
 
@@ -495,10 +448,11 @@ serv_init(State = #state{
     end.
 
 
-serv_handle_cast(Req, State = #state{
-                                 server_module = ServModule,
-                                 server_state = ServState
-                                }) ->
+serv_handle_cast(Req,
+                 State = #state{
+                            server_module = ServModule,
+                            server_state = ServState
+                           }) ->
     case ServModule:handle_cast(Req, ServState) of
         {noreply, NewServState} ->
             {noreply, State#state{server_state = NewServState}};
@@ -524,6 +478,37 @@ serv_handle_call(ReqId, Req, From,
             end;
         {stop, Reason, NewServState} ->
             {stop, Reason, State#state{server_state = NewServState}}
+    end.
+
+
+reply_request(ReqId, Cmd, Pid,
+              State = #state{
+                         waiters = Waiters,
+                         socket = Socket,
+                         protocol_module = ProtoModule
+                        }) ->
+    case ProtoModule:send(Socket, Cmd) of
+        ok ->
+            NewWaiters = maps:put(ReqId, #waiter{
+                                            from = Pid
+                                           }, Waiters),
+            {reply, {ok, ?mark(ReqId)},
+             State#state{
+               req_id = ?next_req_id(ReqId),
+               waiters = NewWaiters
+              }};
+        Err = {error, _} -> {stop, Err, Err, State}
+    end.
+
+
+noreply_request(Cmd,
+                State = #state{
+                           protocol_module = ProtoModule,
+                           socket = Socket
+                          }) ->
+    case ProtoModule:send(Socket, Cmd) of
+        ok -> {noreply, State};
+        Err = {error, _} -> {stop, Err, State}
     end.
 
 

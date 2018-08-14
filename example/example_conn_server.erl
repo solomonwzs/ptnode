@@ -1,3 +1,5 @@
+%% @author Solomon Ng <solomon.wzs@gmail.com>
+
 -module(example_conn_server).
 
 -include("../include/ptnode.hrl").
@@ -16,7 +18,9 @@ init(_) ->
     {ok, #{}}.
 
 
-handle_call(_Req, _From, State) -> {reply, {error, undefined}, State}.
+handle_call(Req, From, State) ->
+    ?dlog("from: ~p, req: ~p~n", [From, Req]),
+    {reply, {error, undefined}, State}.
 
 
 handle_cast(Req, State) ->
