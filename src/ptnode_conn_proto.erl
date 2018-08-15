@@ -14,7 +14,10 @@
          wrap_noreply_request_binary/2,
          wrap_reply_request/3,
          wrap_reply_request/4,
-         wrap_reply_request_reply/2
+         wrap_reply_request_binary/3,
+         wrap_reply_request_reply/2,
+         wrap_reply_request_reply/3,
+         wrap_reply_request_reply_binary/2
         ]).
 
 wrap_register(Name, Cookie) when is_atom(Name) ->
@@ -51,6 +54,11 @@ wrap_noreply_request(To, Req) ->
     ?PROTO_P_NOREPLY_REQUEST(ToLen, To, BLen, B).
 
 
+
+wrap_noreply_request_binary(B) ->
+    BLen = size(B),
+    ?PROTO_P_MS_NOREPLY_REQUEST(BLen, B).
+
 wrap_noreply_request_binary(To, B) when is_atom(To) ->
     wrap_noreply_request_binary(?a2b(To), B);
 wrap_noreply_request_binary(To, B) ->
@@ -65,9 +73,12 @@ wrap_noreply_request(Req) ->
     ?PROTO_P_MS_NOREPLY_REQUEST(BLen, B).
 
 
-wrap_noreply_request_binary(B) ->
+wrap_reply_request_binary(ReqId, From, B) when is_atom(From) ->
+    wrap_reply_request_binary(ReqId, ?a2b(From), B);
+wrap_reply_request_binary(ReqId, From, B) ->
+    FromLen = size(From),
     BLen = size(B),
-    ?PROTO_P_MS_NOREPLY_REQUEST(BLen, B).
+    ?PROTO_P_MS_REPLY_REQUEST(ReqId, FromLen, From, BLen, B).
 
 
 wrap_reply_request(ReqId, From, Req) when is_atom(From) ->
@@ -77,7 +88,6 @@ wrap_reply_request(ReqId, From, Req) ->
     B = term_to_binary(Req),
     BLen = size(B),
     ?PROTO_P_MS_REPLY_REQUEST(ReqId, FromLen, From, BLen, B).
-
 
 wrap_reply_request(ReqId, From, To, Req) when is_atom(From) ->
     wrap_reply_request(ReqId, ?a2b(From), To, Req);
@@ -93,5 +103,18 @@ wrap_reply_request(ReqId, From, To, Req) ->
 
 wrap_reply_request_reply(ReqId, Reply) ->
     B = term_to_binary(Reply),
+    BLen = size(B),
+    ?PROTO_P_MS_REPLY_REPLY(ReqId, BLen, B).
+
+wrap_reply_request_reply(ReqId, To, Reply) when is_atom(To) ->
+    wrap_reply_request_reply(ReqId, ?a2b(To), Reply);
+wrap_reply_request_reply(ReqId, To, Reply) ->
+    ToLen = size(To),
+    B = term_to_binary(Reply),
+    BLen = size(B),
+    ?PROTO_P_REPLY_REPLY(ReqId, ToLen, To, BLen, B).
+
+
+wrap_reply_request_reply_binary(ReqId, B) ->
     BLen = size(B),
     ?PROTO_P_MS_REPLY_REPLY(ReqId, BLen, B).

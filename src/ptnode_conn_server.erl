@@ -18,12 +18,18 @@
          format_status/2,
          terminate/2
         ]).
--export([cast/2, call/2]).
--export([close_conn/1]).
+-export([cast/2,
+         call/2,
+         close_conn/1,
+         noreply_request/2,
+         noreply_request/3,
+         reply_request/3,
+         reply_request/4
+        ]).
 
 -record(waiter, {
-          create_time = ?NOW_SECS   :: integer(),
-          from                      :: pid() | bitstring()
+          create_time = ?NOW_MILL_SECS  :: integer(),
+          from                          :: pid()
          }).
 
 -record(state, {
@@ -39,6 +45,7 @@
           socket            :: ptnode_proto:socket() | undefined,
           req_id = 0        :: integer(),
           waiters = #{}     :: map(),
+          waiter_timeout    :: pos_integer(),
           status = wait     :: wait | ready
          }).
 
@@ -46,7 +53,10 @@
         (?MASTER_SUP_RESTART_PERIOD div
          ?MASTER_SUP_RESTART_INTENSITY + 1) * 1000).
 
--define(HEARTBEAT_INTENSITY, 5000).
+-define(HEARTBEAT_INTENSITY, 10000).
+-define(CLEAN_WAITERS_INTENSITY, 5000).
+
+-define(WAITER_TIMEOUT, 5000).
 
 -define(mark(ReqId), {self(), ReqId}).
 
@@ -60,11 +70,15 @@
            true -> Id + 1
         end).
 
+-type mark() :: {pid(), integer()}.
+-export_type([mark/0]).
+
 
 %% behaviour callback
 -callback init(Args::any()) -> {ok, State::any()} | {stop, Reason::any()}.
 
--callback handle_call(Req::any(), From::tuple(), ServState::any()) ->
+-callback handle_call(Req::any(), From::ptnode:serv_ref(),
+                      ServState::any()) ->
     {reply, Reply::any(), NewServState::any()} |
     {stop, Reason::any(), Reply::any(), NewServState::any()}.
 
@@ -104,6 +118,8 @@ init([master, NodeOpts, ProtoOpts, ServSpec,
             protocol_module = maps:get(module, ProtoOpts),
             server_module = maps:get(module, ServSpec),
             server_args = maps:get(init_args, ServSpec),
+            waiter_timeout = maps:get(request_timeout, NodeOpts,
+                                      ?WAITER_TIMEOUT),
             socket = Socket
            }};
 init([slaver, NodeOpts, ProtoOpts, ServSpec, SupRef]) ->
@@ -129,7 +145,9 @@ init([slaver, NodeOpts, ProtoOpts, ServSpec, SupRef]) ->
             sup = SupRef,
             protocol_module = ProtoModule,
             server_args = ServArgs,
-            server_module = ServModule
+            server_module = ServModule,
+            waiter_timeout = maps:get(request_timeout, NodeOpts,
+                                      ?WAITER_TIMEOUT)
            }}.
 
 
@@ -141,25 +159,52 @@ handle_call({'$reply_request', Req}, {Pid, _},
                        status = ready
                       }) ->
     Cmd = ptnode_conn_proto:wrap_reply_request(ReqId, Name, Req),
-    reply_request(ReqId, Cmd, Pid, State);
+    handle_call_reply_request(ReqId, Cmd, Pid, State);
 
 handle_call({'$reply_request', To, Req}, {Pid, _},
             State = #state{
                        role = slaver,
-                       slaver_name = Name,
+                       master_name = MasterName,
+                       slaver_name = SlaverName,
                        req_id = ReqId,
                        status = ready
                       }) ->
-    Cmd = ptnode_conn_proto:wrap_reply_request(ReqId, Name, To, Req),
-    reply_request(ReqId, Cmd, Pid, State);
+    Cmd = if To =:= MasterName ->
+                 ptnode_conn_proto:wrap_reply_request(
+                   ReqId, SlaverName, Req);
+             true ->
+                 ptnode_conn_proto:wrap_reply_request(
+                   ReqId, SlaverName, To, Req)
+          end,
+    handle_call_reply_request(ReqId, Cmd, Pid, State);
 
 handle_call('$stop', _From, State) ->
     {stop, normal, ok, State};
-handle_call({'$serv_call', Req}, From, State) ->
-    handle_reply(Req, From, State);
+
 handle_call(_Req, _From, State) ->
     {reply, undefined, State}.
 
+
+handle_cast('$clean_timeout_waiters',
+            State = #state{
+                       waiters = Waiters,
+                       waiter_timeout = Timeout,
+                       status = ready
+                      }) ->
+    Now = ?NOW_MILL_SECS,
+    Func = fun(ReqId, #waiter{
+                         create_time = CT,
+                         from = From
+                        }, Ids) ->
+                   if Now - CT > Timeout ->
+                          From ! {?mark(ReqId), {error, response_timeout}},
+                          [ReqId | Ids];
+                      true -> Ids
+                   end
+           end,
+    TimeoutReqIds = maps:fold(Func, [], Waiters),
+    NewWaiters = lists:foldl(fun maps:remove/2, Waiters, TimeoutReqIds),
+    {noreply, State#state{waiters = NewWaiters}};
 
 handle_cast('$heartbeat',
             State = #state{
@@ -208,14 +253,9 @@ handle_cast({'$serv_cast', Req}, State) ->
 handle_cast({'$send', Data},
             State = #state{
                        role = master,
-                       protocol_module = ProtoModule,
-                       socket = Socket,
                        status = ready
                       }) ->
-    case ProtoModule:send(Socket, Data) of
-        ok -> {noreply, State};
-        Err = {error, _} -> {stop, Err, State}
-    end;
+    handle_cast_noreply_request(Data, State);
 
 handle_cast({'$noreply_request', Req},
             State = #state{
@@ -223,7 +263,7 @@ handle_cast({'$noreply_request', Req},
                        status = ready
                       }) ->
     Cmd = ptnode_conn_proto:wrap_noreply_request(Req),
-    noreply_request(Cmd, State);
+    handle_cast_noreply_request(Cmd, State);
 
 handle_cast({'$noreply_request', To, Req},
             State = #state{
@@ -232,13 +272,14 @@ handle_cast({'$noreply_request', To, Req},
                        status = ready
                       }) ->
     serv_handle_cast(Req, State);
+
 handle_cast({'$noreply_request', To, Req},
             State = #state{
                        role = slaver,
                        status = ready
                       }) ->
     Cmd = ptnode_conn_proto:wrap_noreply_request(To, Req),
-    noreply_request(Cmd, State);
+    handle_cast_noreply_request(Cmd, State);
 
 handle_cast(Req, State) ->
     ?dlog("~p~n", [Req]),
@@ -256,33 +297,9 @@ handle_info(Message, State = #state{
             handle_data(Data, State);
         {error, Reason} ->
             ?dlog("close: ~p~n", [Reason]),
-            {noreply, Reason, State};
+            {noreply, State};
         close ->
             {stop, normal, State}
-    end.
-
-
-handle_reply(Req, From,
-             State = #state{
-                        socket = Socket,
-                        protocol_module = ProtoModule,
-                        server_module = ServModule,
-                        server_state = ServState
-                       }) ->
-    case ServModule:handle_call(Req, From, ServState) of
-        {ok, Re, Data, NewServState} ->
-            case ProtoModule:send(Socket, Data) of
-                ok -> {reply, Re, State#state{server_state = NewServState}};
-                Err = {error, _} ->
-                    {stop, Err, State#state{server_state = NewServState}}
-            end;
-        {ok, Re, NewServState} ->
-            {reply, Re, State#state{server_state = NewServState}};
-        {stop, Reason, Re, Data, NewServState} ->
-            ProtoModule:send(Socket,  Data),
-            {stop, Reason, Re, State#state{server_state = NewServState}};
-        {stop, Reason, Re, NewServState} ->
-            {stop, Reason, Re, State#state{server_state = NewServState}}
     end.
 
 
@@ -336,22 +353,10 @@ handle_data(?PROTO_P_REG_RES(NameLen, Name),
 handle_data(?PROTO_P_NOREPLY_REQUEST(ToLen, To, BLen, B),
             State = #state{
                        role = master,
-                       sup = MasterSupRef,
                        status = ready
                       }) ->
-    case ptnode_master_sup:get_node_conn(MasterSupRef, To) of
-        master ->
-            case catch binary_to_term(B) of
-                {'EXIT', _} -> do_nothing;
-                Term -> ?dlog("~p~n", [Term])
-            end;
-        Pid when is_pid(Pid) ->
-            gen_server:cast(
-              Pid, {'$send',
-                    ptnode_conn_proto:wrap_noreply_request_binary(B)});
-        {error, _} -> ok
-    end,
-    {noreply, State};
+    Data = ptnode_conn_proto:wrap_noreply_request_binary(B),
+    handle_data_forward(To, Data, State);
 
 handle_data(?PROTO_P_NOREPLY_REQUEST(NameLen, Name, BLen, B),
             State = #state{
@@ -375,8 +380,17 @@ handle_data(?PROTO_P_MS_REPLY_REQUEST(ReqId, FromLen, From, BLen, B),
             State = #state{status = ready}) ->
     case catch binary_to_term(B) of
         {'EXIT', _} -> {noreply, State};
-        Term -> serv_handle_call(ReqId, Term, ?b2a(From), State)
+        Term -> serv_handle_call(ReqId, Term, From, State)
     end;
+
+handle_data(?PROTO_P_REPLY_REQUEST(
+               ReqId, FromLen, From, ToLen, To, BLen, B),
+            State = #state{
+                       role = master,
+                       status = ready
+                      }) ->
+    Data = ptnode_conn_proto:wrap_reply_request_binary(ReqId, From, B),
+    handle_data_forward(To, Data, State);
 
 handle_data(?PROTO_P_MS_REPLY_REPLY(ReqId, BLen, B),
             State = #state{
@@ -397,6 +411,14 @@ handle_data(?PROTO_P_MS_REPLY_REPLY(ReqId, BLen, B),
             end
     end;
 
+handle_data(?PROTO_P_REPLY_REPLY(ReqId, ToLen, To, BLen, B),
+            State = #state{
+                       role = master,
+                       status = ready
+                      }) ->
+    Data = ptnode_conn_proto:wrap_reply_request_reply_binary(ReqId, B),
+    handle_data_forward(To, Data, State);
+
 handle_data(Data, State) ->
     ?dlog("~p~n", [Data]),
     {noreply, State}.
@@ -414,25 +436,33 @@ format_status(_Opt, [_PDict, _State]) ->
     ok.
 
 
-terminate(Reason, #state{
-                     role = Role,
-                     sup = SupRef,
-                     slaver_name = Name,
-                     socket = Socket,
-                     protocol_module = ProtoModule,
-                     server_module = ServModule,
-                     server_state = ServState
-                    }) ->
+terminate(Reason, State =#state{
+                            server_module = ServModule,
+                            server_state = ServState
+                           }) ->
     ?dlog("~p~n", [Reason]),
-    if Socket =/= undefined -> ProtoModule:close(Socket);
-       true -> ok
-    end,
-    if Role =:= master andalso Name =/= undefined ->
-           ptnode_master_sup:unregister_slaver(SupRef, Name);
-       true -> ok
-    end,
+    terminate_unregister_slaver(State),
+    terminate_close_socket(State),
     ServModule:terminate(Reason, ServState),
     ok.
+
+
+terminate_close_socket(#state{
+                          socket = Socket,
+                          protocol_module = ProtoModule
+                         }) when Socket =/= undefined ->
+    ProtoModule:close(Socket);
+terminate_close_socket(_) -> ok.
+
+
+terminate_unregister_slaver(#state{
+                               role = master,
+                               sup = SupRef,
+                               slaver_name = Name,
+                               status = ready
+                              }) ->
+    ptnode_master_sup:unregister_slaver(SupRef, Name);
+terminate_unregister_slaver(_) -> ok.
 
 
 serv_init(State = #state{
@@ -443,8 +473,16 @@ serv_init(State = #state{
                     }) ->
     ?dlog("~p~n", [ProtoModule:peername(Socket)]),
     case ServModule:init(ServArgs) of
-        {ok, ServState} -> {noreply, State#state{server_state = ServState}};
-        {stop, Reason} -> {stop, Reason, State}
+        {ok, ServState} ->
+            NewState = State#state{server_state = ServState},
+            case timer:apply_interval(
+                   ?CLEAN_WAITERS_INTENSITY,
+                   gen_server, cast, [self(), '$clean_timeout_waiters']) of
+                {ok, _} -> {noreply, NewState};
+                Err = {error, _} -> {stop, Err, NewState}
+            end;
+        {stop, Reason} ->
+            {stop, Reason, State}
     end.
 
 
@@ -463,16 +501,27 @@ serv_handle_cast(Req,
 
 serv_handle_call(ReqId, Req, From,
                  State = #state{
+                            role = Role,
+                            master_name = MasterName,
                             protocol_module = ProtoModule,
                             socket = Socket,
                             server_module = ServModule,
                             server_state = ServState
                            }) ->
-    case ServModule:handle_call(Req, From, ServState) of
+    FromRef = {?b2a(?node_name(State)), ?b2a(From)},
+    case ServModule:handle_call(Req, FromRef, ServState) of
         {reply, Reply, NewServState} ->
-            Cmd = ptnode_conn_proto:wrap_reply_request_reply(ReqId, Reply),
+            Cmd =
+            if Role =:= master orelse From =:= MasterName ->
+                   ptnode_conn_proto:wrap_reply_request_reply(
+                     ReqId, Reply);
+               true ->
+                   ptnode_conn_proto:wrap_reply_request_reply(
+                     ReqId, From, Reply)
+            end,
             case ProtoModule:send(Socket, Cmd) of
-                ok -> {noreply, State#state{server_state = NewServState}};
+                ok ->
+                    {noreply, State#state{server_state = NewServState}};
                 Err = {error, _} ->
                     {stop, Err, State#state{server_state = NewServState}}
             end;
@@ -481,13 +530,25 @@ serv_handle_call(ReqId, Req, From,
     end.
 
 
-reply_request(ReqId, Cmd, Pid,
-              State = #state{
-                         waiters = Waiters,
-                         socket = Socket,
-                         protocol_module = ProtoModule
-                        }) ->
-    case ProtoModule:send(Socket, Cmd) of
+handle_data_forward(To, Data,
+                    State = #state{
+                               role = master,
+                               sup = MasterSupRef
+                              }) ->
+    case ptnode_master_sup:get_node_conn(MasterSupRef, To) of
+        Pid when is_pid(Pid) -> gen_server:cast(Pid, {'$send', Data});
+        _ -> do_nothing
+    end,
+    {noreply, State}.
+
+
+handle_call_reply_request(ReqId, Data, Pid,
+                          State = #state{
+                                     waiters = Waiters,
+                                     socket = Socket,
+                                     protocol_module = ProtoModule
+                                    }) ->
+    case ProtoModule:send(Socket, Data) of
         ok ->
             NewWaiters = maps:put(ReqId, #waiter{
                                             from = Pid
@@ -501,21 +562,50 @@ reply_request(ReqId, Cmd, Pid,
     end.
 
 
-noreply_request(Cmd,
-                State = #state{
-                           protocol_module = ProtoModule,
-                           socket = Socket
-                          }) ->
-    case ProtoModule:send(Socket, Cmd) of
+handle_cast_noreply_request(Data,
+                            State = #state{
+                                       protocol_module = ProtoModule,
+                                       socket = Socket
+                                      }) ->
+    case ProtoModule:send(Socket, Data) of
         ok -> {noreply, State};
         Err = {error, _} -> {stop, Err, State}
     end.
 
 
+-spec(cast(pid(), term()) -> ok).
 cast(Ref, Req) -> gen_server:cast(Ref, {'$serv_cast', Req}).
 
 
+-spec(call(pid(), term()) -> term()).
 call(Ref, Req) -> gen_server:call(Ref, {'$serv_call', Req}).
 
 
+-spec(close_conn(pid()) -> ok).
 close_conn(Ref) -> gen_server:call(Ref, '$stop', 5 * 1000).
+
+
+-spec(reply_request(pid(), term(), integer() | infinity)
+      -> {ok, mark()} | {error, any()}).
+reply_request(Ref, Req, Timeout) ->
+    gen_server:call(Ref, {'$reply_request', Req}, Timeout).
+
+
+-spec(reply_request(pid(), atom() | binary(), term(), integer() | infinity)
+      -> {ok, mark()} | {error, any()}).
+reply_request(Ref, To, Req, Timeout) when is_atom(To) ->
+    reply_request(Ref, ?a2b(To), Req, Timeout);
+reply_request(Ref, To, Req, Timeout) ->
+    gen_server:call(Ref, {'$reply_request', To, Req}, Timeout).
+
+
+-spec(noreply_request(pid(), term()) -> ok).
+noreply_request(Ref, Req) ->
+    gen_server:cast(Ref, {'$noreply_request', Req}).
+
+
+-spec(noreply_request(pid(), atom() | binary(), term()) -> ok).
+noreply_request(Ref, To, Req) when is_atom(To) ->
+    noreply_request(Ref, ?a2b(To), Req);
+noreply_request(Ref, To, Req) ->
+    gen_server:cast(Ref, {'$noreply_request', To, Req}).

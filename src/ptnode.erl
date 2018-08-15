@@ -9,6 +9,7 @@
         role => master | slaver,
         cookie => bitstring(),
         num_acceptors => pos_integer(),
+        request_timeout => pos_integer(),
         named_node => boolean()
        }.
 -export_type([node_opts/0]).
@@ -32,7 +33,8 @@
        }.
 -export_type([serv_spec/0]).
 
--type ptnode_serv_ref() :: {Name::atom(), To::atom()}.
+-type serv_ref() :: {LocalNodeName::atom(), RemoteNodeName::atom()}.
+-export_type([serv_ref/0]).
 
 -export([start/0, stop/0]).
 -export([start_node/3, stop_node/1]).
@@ -126,18 +128,22 @@ get_node_serv(slaver, {Name, _}) ->
     end.
 
 
--spec(call(ptnode_serv_ref(), term(), pos_integer() | infinity) -> term()).
+-spec(call(serv_ref(), term(), pos_integer() | infinity) -> term()).
 call(ServerRef = {Name, To}, Req, Timeout) ->
     case node_role(Name) of
         Err = {error, _} -> Err;
         Role ->
             case get_node_serv(Role, ServerRef) of
                 {ok, Serv} ->
-                    ReplyReq =
-                    if Role =:= master -> {'$reply_request', Req};
-                       Role =:= slaver -> {'$reply_request', ?a2b(To), Req}
+                    Res =
+                    if Role =:= master ->
+                           ptnode_conn_server:reply_request(
+                             Serv, Req, Timeout);
+                       Role =:= slaver ->
+                           ptnode_conn_server:reply_request(
+                             Serv, To, Req, Timeout)
                     end,
-                    case gen_server:call(Serv, ReplyReq, Timeout) of
+                    case Res of
                         {ok, Mark} ->
                             receive
                                 {Mark, Reply} -> Reply
@@ -150,20 +156,18 @@ call(ServerRef = {Name, To}, Req, Timeout) ->
     end.
 
 
--spec(cast(ptnode_serv_ref(), term()) -> ok | {error, any()}).
+-spec(cast(serv_ref(), term()) -> ok | {error, any()}).
 cast(ServerRef = {Name, To}, Req) ->
     case node_role(Name) of
         Err = {error, _} -> Err;
         Role ->
             case get_node_serv(Role, ServerRef) of
                 {ok, Serv} ->
-                    NoreplyReq =
                     if Role =:= master ->
-                           {'$noreply_request', Req};
+                           ptnode_conn_server:noreply_request(Serv, Req);
                        Role =:= slaver ->
-                           {'$noreply_request', ?a2b(To), Req}
-                    end,
-                    gen_server:cast(Serv, NoreplyReq);
+                           ptnode_conn_server:noreply_request(Serv, To, Req)
+                    end;
                 Err = {error, _} -> Err
             end
     end.

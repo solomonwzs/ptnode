@@ -23,6 +23,7 @@
 -define(SLAVER_CONN_ID, '$slaver').
 
 -define(NOW_SECS, erlang:system_time(second)).
+-define(NOW_MILL_SECS, erlang:system_time(millisecond)).
 
 -define(get_master_mgmt(MasterSupRef),
         ptnode_sup:get_child(MasterSupRef, ?MASTER_MGMT_ID)).
