@@ -8,10 +8,7 @@
 
 -export([start_link/3]).
 -export([init/1]).
--export([register_slaver/3,
-         unregister_slaver/2,
-         get_node_conn/2,
-         get_nodes/1
+-export([get_node_conns/1
         ]).
 
 -define(SUP_FLAGS, {one_for_one,
@@ -59,26 +56,7 @@ init([NodeOpts, ProtoOpts, ServSpec]) ->
     {ok, {?SUP_FLAGS, [AccepterSup, ConnSup, Mgmt]}}.
 
 
-get_node_conn(MasterSupRef, Name) when is_atom(Name) ->
-    get_node_conn(MasterSupRef, ?a2b(Name));
-get_node_conn(MasterSupRef, Name) ->
-    {ok, Mgmt} = ?get_master_mgmt(MasterSupRef),
-    gen_server:call(Mgmt, {'$get_node_conn', Name}, 1000).
-
-
-get_nodes(MasterSupRef) ->
-    {ok, Mgmt} = ?get_master_mgmt(MasterSupRef),
-    gen_server:call(Mgmt, '$nodes', 1000).
-
-
-register_slaver(MasterSupRef, Name, Pid) ->
-    {ok, Mgmt} = ?get_master_mgmt(MasterSupRef),
-    gen_server:call(Mgmt, {'$register_slaver', Name, Pid}).
-
-
-unregister_slaver(MasterSupRef, Name) ->
-    case ?get_master_mgmt(MasterSupRef) of
-        {ok, Mgmt} ->
-            gen_server:call(Mgmt, {'$unregister_slaver', Name});
-        _ -> ok
-    end.
+get_node_conns(MasterSupRef) ->
+    {ok, ConnSup} = ?get_master_conn_sup(MasterSupRef),
+    ?dlog("~p~n", [supervisor:count_children(ConnSup)]),
+    supervisor:which_children(ConnSup).

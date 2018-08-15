@@ -53,8 +53,8 @@
         (?MASTER_SUP_RESTART_PERIOD div
          ?MASTER_SUP_RESTART_INTENSITY + 1) * 1000).
 
--define(HEARTBEAT_INTENSITY, 10000).
--define(CLEAN_WAITERS_INTENSITY, 5000).
+-define(HEARTBEAT_INTERVAL, 10000).
+-define(CLEAN_WAITERS_INTERVAL, 5000).
 
 -define(WAITER_TIMEOUT, 5000).
 
@@ -320,7 +320,7 @@ handle_data(?PROTO_P_REG(NameLen, Name, CookieLen, Cookie),
            Cmd = ptnode_conn_proto:wrap_register_res(MasterName),
            case ProtoModule:send(Socket, Cmd) of
                ok ->
-                   case ptnode_master_sup:register_slaver(
+                   case ptnode_master_mgmt:register_slaver(
                           MasterSupRef, Name, self()) of
                        ok ->
                            serv_init(State#state{
@@ -341,7 +341,7 @@ handle_data(?PROTO_P_REG_RES(NameLen, Name),
                        status = wait
                       }) ->
     case timer:apply_interval(
-           ?HEARTBEAT_INTENSITY,
+           ?HEARTBEAT_INTERVAL,
            gen_server, cast, [self(), '$heartbeat']) of
         {ok, _} -> serv_init(State#state{
                                master_name = Name,
@@ -461,7 +461,7 @@ terminate_unregister_slaver(#state{
                                slaver_name = Name,
                                status = ready
                               }) ->
-    ptnode_master_sup:unregister_slaver(SupRef, Name);
+    ptnode_master_mgmt:unregister_slaver(SupRef, Name);
 terminate_unregister_slaver(_) -> ok.
 
 
@@ -475,15 +475,27 @@ serv_init(State = #state{
     case ServModule:init(ServArgs) of
         {ok, ServState} ->
             NewState = State#state{server_state = ServState},
-            case timer:apply_interval(
-                   ?CLEAN_WAITERS_INTENSITY,
-                   gen_server, cast, [self(), '$clean_timeout_waiters']) of
-                {ok, _} -> {noreply, NewState};
-                Err = {error, _} -> {stop, Err, NewState}
-            end;
+            {ok, _} = timer:apply_interval(
+                        ?CLEAN_WAITERS_INTERVAL,
+                        gen_server, cast,
+                        [self(), '$clean_timeout_waiters']),
+            serv_report_alive(State),
+            {noreply, NewState};
         {stop, Reason} ->
             {stop, Reason, State}
     end.
+
+
+serv_report_alive(#state{
+                     role = master,
+                     master_name = MasterName,
+                     sup = MasterSupRef
+                    }) ->
+    {ok, _} = timer:apply_interval(
+                ?SERV_REPORT_ALIVE_INTERVAL,
+                ptnode_master_mgmt, serv_report_alive,
+                [MasterSupRef, MasterName, self()]);
+serv_report_alive(_) -> ok.
 
 
 serv_handle_cast(Req,
@@ -535,7 +547,7 @@ handle_data_forward(To, Data,
                                role = master,
                                sup = MasterSupRef
                               }) ->
-    case ptnode_master_sup:get_node_conn(MasterSupRef, To) of
+    case ptnode_master_mgmt:get_node_conn(MasterSupRef, To) of
         Pid when is_pid(Pid) -> gen_server:cast(Pid, {'$send', Data});
         _ -> do_nothing
     end,

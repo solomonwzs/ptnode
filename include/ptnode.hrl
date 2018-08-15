@@ -34,4 +34,6 @@
 -define(get_slaver_conn(SlaverSupRef),
         ptnode_sup:get_child(SlaverSupRef, ?SLAVER_CONN_ID)).
 
+-define(SERV_REPORT_ALIVE_INTERVAL, 2000).
+
 -endif.

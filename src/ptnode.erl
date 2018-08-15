@@ -114,7 +114,7 @@ get_node_sup_pid(Name) when is_atom(Name) ->
 get_node_serv(master, {Name, To}) ->
     case get_node_sup_pid(Name) of
         {ok, Pid} ->
-            case ptnode_master_sup:get_node_conn(Pid, To) of
+            case ptnode_master_mgmt:get_node_conn(Pid, To) of
                 master -> {error, master};
                 Err = {error, _} -> Err;
                 Serv -> {ok, Serv}
