@@ -7,6 +7,10 @@
 
 -define(MSG_REPLY_REQUEST(To, Req), {'$reply_request', To, Req}).
 
+-define(MSG_REPLY_REQUEST_I(Req), {'$reply_request_i', Req}).
+
+-define(MSG_REPLY_REQUEST_I(To, Req), {'$reply_request_i', To, Req}).
+
 -define(MSG_CONN_STOP, '$stop').
 
 -define(MSG_CLEAN_TIMEOUT_WAITERS, '$clean_timeout_waiters').

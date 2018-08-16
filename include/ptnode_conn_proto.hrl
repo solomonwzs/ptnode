@@ -7,6 +7,18 @@
 
 -define(PROTO_REG_TIMEOUT, 5000).
 
+-define(PROTO_CMD_REG,                  16#00).
+-define(PROTO_CMD_REG_RES,              16#01).
+-define(PROTO_CMD_HEARTBEAT,            16#02).
+-define(PROTO_CMD_NOREPLY_REQUEST,      16#03).
+-define(PROTO_CMD_REPLY_REQUEST,        16#04).
+-define(PROTO_CMD_REPLY_REQUEST_I,      16#05).
+-define(PROTO_CMD_REPLY_REPLY,          16#06).
+-define(PROTO_CMD_MS_NOREPLY_REQUEST,   16#07).
+-define(PROTO_CMD_MS_REPLY_REQUEST,     16#08).
+-define(PROTO_CMD_MS_REPLY_REQUEST_I,   16#09).
+-define(PROTO_CMD_MS_REPLY_REPLY,       16#0a).
+
 %% register
 %%
 %% master <-- slaver
@@ -15,7 +27,6 @@
 %% +-----+-----+----------+------+------------+--------+
 %% |  1  |  1  |    1     | var  |     1      |  var   |
 %% +-----+-----+----------+------+------------+--------+
--define(PROTO_CMD_REG, 16#00).
 -define(PROTO_P_REG(NameLen, Name, CookieLen, Cookie),
         <<?PROTO_VERSION:8/unsigned-little,
           ?PROTO_CMD_REG:8/unsigned-little,
@@ -33,7 +44,6 @@
 %% +-----+-----+----------+------+
 %% |  1  |  1  |    1     | var  |
 %% +-----+-----+----------+------+
--define(PROTO_CMD_REG_RES, 16#01).
 -define(PROTO_P_REG_RES(NameLen, Name),
         <<?PROTO_VERSION:8/unsigned-little,
           ?PROTO_CMD_REG_RES:8/unsigned-little,
@@ -49,7 +59,6 @@
 %% +-----+-----+
 %% |  1  |  1  |
 %% +-----+-----+
--define(PROTO_CMD_HEARTBEAT, 16#02).
 -define(PROTO_P_HEARTBEAT,
         <<?PROTO_VERSION:8/unsigned-little,
           ?PROTO_CMD_HEARTBEAT:8/unsigned-little
@@ -63,7 +72,6 @@
 %% +-----+-----+--------+-----+---------+-----+
 %% |  1  |  1  |    1   | var |    2    | var |
 %% +-----+-----+--------+-----+---------+-----+
--define(PROTO_CMD_NOREPLY_REQUEST, 16#03).
 -define(PROTO_P_NOREPLY_REQUEST(ToLen, To, ReqLen, Req),
         <<?PROTO_VERSION:8/unsigned-little,
           ?PROTO_CMD_NOREPLY_REQUEST:8/unsigned-little,
@@ -81,10 +89,30 @@
 %% +-----+-----+--------+----------+------+--------+-----+---------+-----+
 %% |  1  |  1  |    4   |    1     |  var |   1    | var |    2    | var |
 %% +-----+-----+--------+----------+------+--------+-----+---------+-----+
--define(PROTO_CMD_REPLY_REQUEST, 16#04).
 -define(PROTO_P_REPLY_REQUEST(ReqId, FromLen, From, ToLen, To, ReqLen, Req),
         <<?PROTO_VERSION:8/unsigned-little,
           ?PROTO_CMD_REPLY_REQUEST:8/unsigned-little,
+          ReqId:32/unsigned-little,
+          FromLen:8/unsigned-little,
+          From:FromLen/binary,
+          ToLen:8/unsigned-little,
+          To:ToLen/binary,
+          ReqLen:16/unsigned-little,
+          Req:ReqLen/binary
+        >>).
+
+%% reply-request (external term format, for internal)
+%%
+%% master <-- slaver
+%% +-----+-----+--------+----------+------+--------+-----+---------+-----+
+%% | ver | cmd | req_id | from_len | from | to_len | to  | req_len | req |
+%% +-----+-----+--------+----------+------+--------+-----+---------+-----+
+%% |  1  |  1  |    4   |    1     |  var |   1    | var |    2    | var |
+%% +-----+-----+--------+----------+------+--------+-----+---------+-----+
+-define(PROTO_P_REPLY_REQUEST_I(ReqId, FromLen, From, ToLen, To,
+                                ReqLen, Req),
+        <<?PROTO_VERSION:8/unsigned-little,
+          ?PROTO_CMD_REPLY_REQUEST_I:8/unsigned-little,
           ReqId:32/unsigned-little,
           FromLen:8/unsigned-little,
           From:FromLen/binary,
@@ -102,7 +130,6 @@
 %% +-----+-----+--------+--------+-----+-----------+-------+
 %% |  1  |  1  |    4   |    1   | var |     2     |  var  |
 %% +-----+-----+--------+--------+-----+-----------+-------+
--define(PROTO_CMD_REPLY_REPLY, 16#05).
 -define(PROTO_P_REPLY_REPLY(ReqId, ToLen, To, ReplyLen, Reply),
         <<?PROTO_VERSION:8/unsigned-little,
           ?PROTO_CMD_REPLY_REPLY:8/unsigned-little,
@@ -121,7 +148,6 @@
 %% +-----+-----+---------+-----+
 %% |  1  |  1  |    2    | var |
 %% +-----+-----+---------+-----+
--define(PROTO_CMD_MS_NOREPLY_REQUEST, 16#06).
 -define(PROTO_P_MS_NOREPLY_REQUEST(ReqLen, Req),
         <<?PROTO_VERSION:8/unsigned-little,
           ?PROTO_CMD_MS_NOREPLY_REQUEST:8/unsigned-little,
@@ -137,10 +163,27 @@
 %% +-----+-----+--------+----------+------+---------+-----+
 %% |  1  |  1  |    4   |    1     |  var |    2    | var |
 %% +-----+-----+--------+----------+------+---------+-----+
--define(PROTO_CMD_MS_REPLY_REQUEST, 16#07).
 -define(PROTO_P_MS_REPLY_REQUEST(ReqId, FromLen, From, ReqLen, Req),
         <<?PROTO_VERSION:8/unsigned-little,
           ?PROTO_CMD_MS_REPLY_REQUEST:8/unsigned-little,
+          ReqId:32/unsigned-little,
+          FromLen:8/unsigned-little,
+          From:FromLen/binary,
+          ReqLen:16/unsigned-little,
+          Req:ReqLen/binary
+        >>).
+
+%% m-s reply-request (external term format, for internal command).
+%%
+%% master/slaver <-> slaver
+%% +-----+-----+--------+----------+------+---------+-----+
+%% | ver | cmd | req_id | from_len | from | req_len | req |
+%% +-----+-----+--------+----------+------+---------+-----+
+%% |  1  |  1  |    4   |    1     |  var |    2    | var |
+%% +-----+-----+--------+----------+------+---------+-----+
+-define(PROTO_P_MS_REPLY_REQUEST_I(ReqId, FromLen, From, ReqLen, Req),
+        <<?PROTO_VERSION:8/unsigned-little,
+          ?PROTO_CMD_MS_REPLY_REQUEST_I:8/unsigned-little,
           ReqId:32/unsigned-little,
           FromLen:8/unsigned-little,
           From:FromLen/binary,
@@ -156,7 +199,6 @@
 %% +-----+-----+--------+-----------+-------+
 %% |  1  |  1  |    4   |     2     |  var  |
 %% +-----+-----+--------+-----------+-------+
--define(PROTO_CMD_MS_REPLY_REPLY, 16#08).
 -define(PROTO_P_MS_REPLY_REPLY(ReqId, ReplyLen, Reply),
         <<?PROTO_VERSION:8/unsigned-little,
           ?PROTO_CMD_MS_REPLY_REPLY:8/unsigned-little,

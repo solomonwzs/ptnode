@@ -12,9 +12,9 @@
          wrap_noreply_request/2,
          wrap_noreply_request_binary/1,
          wrap_noreply_request_binary/2,
-         wrap_reply_request/3,
          wrap_reply_request/4,
-         wrap_reply_request_binary/3,
+         wrap_reply_request/5,
+         wrap_reply_request_binary/4,
          wrap_reply_request_reply/2,
          wrap_reply_request_reply/3,
          wrap_reply_request_reply_binary/2
@@ -73,32 +73,45 @@ wrap_noreply_request(Req) ->
     ?PROTO_P_MS_NOREPLY_REQUEST(BLen, B).
 
 
-wrap_reply_request_binary(ReqId, From, B) when is_atom(From) ->
-    wrap_reply_request_binary(ReqId, ?A2B(From), B);
-wrap_reply_request_binary(ReqId, From, B) ->
+wrap_reply_request_binary(ReqId, From, B, I) when is_atom(From) ->
+    wrap_reply_request_binary(ReqId, ?A2B(From), B, I);
+wrap_reply_request_binary(ReqId, From, B, I) ->
     FromLen = size(From),
     BLen = size(B),
-    ?PROTO_P_MS_REPLY_REQUEST(ReqId, FromLen, From, BLen, B).
+    if I =:= external ->
+           ?PROTO_P_MS_REPLY_REQUEST(ReqId, FromLen, From, BLen, B);
+       I =:= internal ->
+           ?PROTO_P_MS_REPLY_REQUEST_I(ReqId, FromLen, From, BLen, B)
+    end.
 
 
-wrap_reply_request(ReqId, From, Req) when is_atom(From) ->
-    wrap_reply_request(ReqId, ?A2B(From), Req);
-wrap_reply_request(ReqId, From, Req) ->
+wrap_reply_request(ReqId, From, Req, I) when is_atom(From) ->
+    wrap_reply_request(ReqId, ?A2B(From), Req, I);
+wrap_reply_request(ReqId, From, Req, I) ->
     FromLen = size(From),
     B = term_to_binary(Req),
     BLen = size(B),
-    ?PROTO_P_MS_REPLY_REQUEST(ReqId, FromLen, From, BLen, B).
+    if I =:= external ->
+           ?PROTO_P_MS_REPLY_REQUEST(ReqId, FromLen, From, BLen, B);
+       I =:= internal ->
+           ?PROTO_P_MS_REPLY_REQUEST_I(ReqId, FromLen, From, BLen, B)
+    end.
 
-wrap_reply_request(ReqId, From, To, Req) when is_atom(From) ->
-    wrap_reply_request(ReqId, ?A2B(From), To, Req);
-wrap_reply_request(ReqId, From, To, Req) when is_atom(To) ->
-    wrap_reply_request(ReqId, From, ?A2B(To), Req);
-wrap_reply_request(ReqId, From, To, Req) ->
+wrap_reply_request(ReqId, From, To, Req, I) when is_atom(From) ->
+    wrap_reply_request(ReqId, ?A2B(From), To, Req, I);
+wrap_reply_request(ReqId, From, To, Req, I) when is_atom(To) ->
+    wrap_reply_request(ReqId, From, ?A2B(To), Req, I);
+wrap_reply_request(ReqId, From, To, Req, I) ->
     FromLen = size(From),
     ToLen = size(To),
     B = term_to_binary(Req),
     BLen = size(B),
-    ?PROTO_P_REPLY_REQUEST(ReqId, FromLen, From, ToLen, To, BLen, B).
+    if I =:= external ->
+           ?PROTO_P_REPLY_REQUEST(ReqId, FromLen, From, ToLen, To, BLen, B);
+       I =:= internal ->
+           ?PROTO_P_REPLY_REQUEST_I(ReqId, FromLen, From, ToLen, To,
+                                    BLen, B)
+    end.
 
 
 wrap_reply_request_reply(ReqId, Reply) ->
