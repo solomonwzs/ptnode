@@ -32,7 +32,7 @@ accept(MasterSupRef, ListenSocket,
         {ok, SslSocket} ->
             handshake(MasterSupRef, SslSocket,
                       ProtoModule, HandshakeOpts);
-        Err -> ?dlog("~p~n", [Err])
+        Err -> ?DLOG("~p~n", [Err])
     end.
 
 
@@ -42,17 +42,17 @@ handshake(MasterSupRef, SslSocket,
         {ok, Socket} ->
             get_conn_sup(MasterSupRef, Socket, ProtoModule);
         Err ->
-            ?dlog("~p~n", [Err]),
+            ?DLOG("~p~n", [Err]),
             ProtoModule:close(SslSocket)
     end.
 
 
 get_conn_sup(MasterSupRef, Socket, ProtoModule) ->
-    case ?get_master_conn_sup(MasterSupRef) of
+    case ?GET_MASTER_CONN_SUP(MasterSupRef) of
         {ok, SupRef} ->
             start_conn_server(MasterSupRef, SupRef, Socket, ProtoModule);
         Err ->
-            ?dlog("~p~n", [Err]),
+            ?DLOG("~p~n", [Err]),
             ProtoModule:close(Socket)
     end.
 
@@ -66,14 +66,14 @@ start_conn_server(MasterSupRef, SupRef, Socket, ProtoModule) ->
                     case ProtoModule:setopts(Socket, [{active, true}]) of
                         ok -> ok;
                         Err = {error, _} ->
-                            ?dlog("~p~n", [Err]),
+                            ?DLOG("~p~n", [Err]),
                             ProtoModule:close(Socket)
                     end;
                 Err ->
-                    ?dlog("~p~n", [Err]),
+                    ?DLOG("~p~n", [Err]),
                     ProtoModule:close(Socket)
             end;
         Err ->
-            ?dlog("~p~n", [Err]),
+            ?DLOG("~p~n", [Err]),
             ProtoModule:close(Socket)
     end.

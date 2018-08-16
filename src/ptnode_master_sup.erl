@@ -57,6 +57,6 @@ init([NodeOpts, ProtoOpts, ServSpec]) ->
 
 
 get_node_conns(MasterSupRef) ->
-    {ok, ConnSup} = ?get_master_conn_sup(MasterSupRef),
-    ?dlog("~p~n", [supervisor:count_children(ConnSup)]),
+    {ok, ConnSup} = ?GET_MASTER_CONN_SUP(MasterSupRef),
+    ?DLOG("~p~n", [supervisor:count_children(ConnSup)]),
     supervisor:which_children(ConnSup).

@@ -4,6 +4,7 @@
 
 -include("ptnode.hrl").
 -include("ptnode_conn_proto.hrl").
+-include("ptnode_conn_server.hrl").
 
 -behaviour(gen_server).
 
@@ -58,14 +59,14 @@
 
 -define(WAITER_TIMEOUT, 5000).
 
--define(mark(ReqId), {self(), ReqId}).
+-define(MARK(ReqId), {self(), ReqId}).
 
--define(node_name(State),
+-define(NODE_NAME(State),
         if State#state.role =:= master -> State#state.master_name;
            true -> State#state.slaver_name
         end).
 
--define(next_req_id(Id),
+-define(NEXT_REQ_ID(Id),
         if Id =:= ?PROTO_MAX_REQ_ID -> 0;
            true -> Id + 1
         end).
@@ -109,10 +110,10 @@ start_slaver_conn_link(NodeOpts, ProtoOpts, ServSpec, SupRef) ->
 init([master, NodeOpts, ProtoOpts, ServSpec,
       {MasterSupRef, Socket}]) ->
     timer:apply_after(?PROTO_REG_TIMEOUT,
-                      gen_server, cast, [self(), '$reg_timeout']),
+                      gen_server, cast, [self(), ?MSG_REG_TIMEOUT]),
     {ok, #state{
             role = master,
-            master_name = ?a2b(maps:get(name, NodeOpts)),
+            master_name = ?A2B(maps:get(name, NodeOpts)),
             cookie = maps:get(cookie, NodeOpts),
             sup = MasterSupRef,
             protocol_module = maps:get(module, ProtoOpts),
@@ -135,12 +136,12 @@ init([slaver, NodeOpts, ProtoOpts, ServSpec, SupRef]) ->
     ServModule = maps:get(module, ServSpec),
     ServArgs = maps:get(init_args, ServSpec),
 
-    ConnReq = {'$conn_master', Host, Port, Opts, Timeout},
+    ConnReq = ?MSG_CONN_MASTER(Host, Port, Opts, Timeout),
     gen_server:cast(self(), ConnReq),
 
     {ok, #state{
             role = slaver,
-            slaver_name = ?a2b(Name),
+            slaver_name = ?A2B(Name),
             cookie = Cookie,
             sup = SupRef,
             protocol_module = ProtoModule,
@@ -151,7 +152,7 @@ init([slaver, NodeOpts, ProtoOpts, ServSpec, SupRef]) ->
            }}.
 
 
-handle_call({'$reply_request', Req}, {Pid, _},
+handle_call(?MSG_REPLY_REQUEST(Req), {Pid, _},
             State = #state{
                        role = master,
                        master_name = Name,
@@ -161,7 +162,7 @@ handle_call({'$reply_request', Req}, {Pid, _},
     Cmd = ptnode_conn_proto:wrap_reply_request(ReqId, Name, Req),
     handle_call_reply_request(ReqId, Cmd, Pid, State);
 
-handle_call({'$reply_request', To, Req}, {Pid, _},
+handle_call(?MSG_REPLY_REQUEST(To, Req), {Pid, _},
             State = #state{
                        role = slaver,
                        master_name = MasterName,
@@ -178,14 +179,14 @@ handle_call({'$reply_request', To, Req}, {Pid, _},
           end,
     handle_call_reply_request(ReqId, Cmd, Pid, State);
 
-handle_call('$stop', _From, State) ->
+handle_call(?MSG_CONN_STOP, _From, State) ->
     {stop, normal, ok, State};
 
 handle_call(_Req, _From, State) ->
     {reply, undefined, State}.
 
 
-handle_cast('$clean_timeout_waiters',
+handle_cast(?MSG_CLEAN_TIMEOUT_WAITERS,
             State = #state{
                        waiters = Waiters,
                        waiter_timeout = Timeout,
@@ -197,7 +198,7 @@ handle_cast('$clean_timeout_waiters',
                          from = From
                         }, Ids) ->
                    if Now - CT > Timeout ->
-                          From ! {?mark(ReqId), {error, response_timeout}},
+                          From ! {?MARK(ReqId), {error, response_timeout}},
                           [ReqId | Ids];
                       true -> Ids
                    end
@@ -206,7 +207,7 @@ handle_cast('$clean_timeout_waiters',
     NewWaiters = lists:foldl(fun maps:remove/2, Waiters, TimeoutReqIds),
     {noreply, State#state{waiters = NewWaiters}};
 
-handle_cast('$heartbeat',
+handle_cast(?MSG_CONN_HEARTBEAT,
             State = #state{
                        protocol_module = ProtoModule,
                        socket = Socket,
@@ -218,10 +219,10 @@ handle_cast('$heartbeat',
         Err = {error, _} -> {stop, Err, State}
     end;
 
-handle_cast('$reg_timeout', State = #state{status = wait}) ->
+handle_cast(?MSG_REG_TIMEOUT, State = #state{status = wait}) ->
     {stop, {error, "register timeout"}, State};
 
-handle_cast({'$conn_master', Host, Port, ConnectOpts, Timeout},
+handle_cast(?MSG_CONN_MASTER(Host, Port, ConnectOpts, Timeout),
             State = #state{
                        role = slaver,
                        protocol_module = ProtoModule,
@@ -236,7 +237,7 @@ handle_cast({'$conn_master', Host, Port, ConnectOpts, Timeout},
                 ok ->
                     timer:apply_after(?PROTO_REG_TIMEOUT,
                                       gen_server, cast,
-                                      [self(), '$reg_timeout']),
+                                      [self(), ?MSG_REG_TIMEOUT]),
                     {noreply, NewState};
                 Err = {error, _} ->
                     timer:sleep(?RECONN_WAIT_TIME),
@@ -247,17 +248,17 @@ handle_cast({'$conn_master', Host, Port, ConnectOpts, Timeout},
             {stop, Err, State}
     end;
 
-handle_cast({'$serv_cast', Req}, State) ->
+handle_cast(?MSG_SERV_CAST(Req), State) ->
     serv_handle_cast(Req, State);
 
-handle_cast({'$send', Data},
+handle_cast(?MSG_SEND_DATA(Data),
             State = #state{
                        role = master,
                        status = ready
                       }) ->
     handle_cast_noreply_request(Data, State);
 
-handle_cast({'$noreply_request', Req},
+handle_cast(?MSG_NOREPLY_REQUEST(Req),
             State = #state{
                        role = master,
                        status = ready
@@ -265,7 +266,7 @@ handle_cast({'$noreply_request', Req},
     Cmd = ptnode_conn_proto:wrap_noreply_request(Req),
     handle_cast_noreply_request(Cmd, State);
 
-handle_cast({'$noreply_request', To, Req},
+handle_cast(?MSG_NOREPLY_REQUEST(To, Req),
             State = #state{
                        role = slaver,
                        slaver_name = To,
@@ -273,7 +274,7 @@ handle_cast({'$noreply_request', To, Req},
                       }) ->
     serv_handle_cast(Req, State);
 
-handle_cast({'$noreply_request', To, Req},
+handle_cast(?MSG_NOREPLY_REQUEST(To, Req),
             State = #state{
                        role = slaver,
                        status = ready
@@ -282,12 +283,12 @@ handle_cast({'$noreply_request', To, Req},
     handle_cast_noreply_request(Cmd, State);
 
 handle_cast(Req, State) ->
-    ?dlog("~p~n", [Req]),
-    ?dlog("~p~n", [State]),
+    ?DLOG("~p~n", [Req]),
+    ?DLOG("~p~n", [State]),
     {noreply, State}.
 
 
-handle_info('$stop', State) ->
+handle_info(?MSG_CONN_STOP, State) ->
     {stop, normal, State};
 handle_info(Message, State = #state{
                                 protocol_module = ProtoModule
@@ -296,7 +297,7 @@ handle_info(Message, State = #state{
         {ok, Data} ->
             handle_data(Data, State);
         {error, Reason} ->
-            ?dlog("close: ~p~n", [Reason]),
+            ?DLOG("close: ~p~n", [Reason]),
             {noreply, State};
         close ->
             {stop, normal, State}
@@ -320,7 +321,7 @@ handle_data(?PROTO_P_REG(NameLen, Name, CookieLen, Cookie),
            Cmd = ptnode_conn_proto:wrap_register_res(MasterName),
            case ProtoModule:send(Socket, Cmd) of
                ok ->
-                   case ptnode_master_mgmt:register_slaver(
+                   case ptnode_master:register_slaver(
                           MasterSupRef, Name, self()) of
                        ok ->
                            serv_init(State#state{
@@ -342,7 +343,7 @@ handle_data(?PROTO_P_REG_RES(NameLen, Name),
                       }) ->
     case timer:apply_interval(
            ?HEARTBEAT_INTERVAL,
-           gen_server, cast, [self(), '$heartbeat']) of
+           gen_server, cast, [self(), ?MSG_CONN_HEARTBEAT]) of
         {ok, _} -> serv_init(State#state{
                                master_name = Name,
                                status = ready
@@ -406,7 +407,7 @@ handle_data(?PROTO_P_MS_REPLY_REPLY(ReqId, BLen, B),
                         from = From
                        }} when is_pid(From) ->
                     NewWaiters = maps:remove(ReqId, Waiters),
-                    From ! {?mark(ReqId), Term},
+                    From ! {?MARK(ReqId), Term},
                     {noreply, State#state{waiters = NewWaiters}}
             end
     end;
@@ -420,7 +421,7 @@ handle_data(?PROTO_P_REPLY_REPLY(ReqId, ToLen, To, BLen, B),
     handle_data_forward(To, Data, State);
 
 handle_data(Data, State) ->
-    ?dlog("~p~n", [Data]),
+    ?DLOG("~p~n", [Data]),
     {noreply, State}.
 
 
@@ -440,7 +441,7 @@ terminate(Reason, State =#state{
                             server_module = ServModule,
                             server_state = ServState
                            }) ->
-    ?dlog("~p~n", [Reason]),
+    ?DLOG("~p~n", [Reason]),
     terminate_unregister_slaver(State),
     terminate_close_socket(State),
     ServModule:terminate(Reason, ServState),
@@ -461,7 +462,7 @@ terminate_unregister_slaver(#state{
                                slaver_name = Name,
                                status = ready
                               }) ->
-    ptnode_master_mgmt:unregister_slaver(SupRef, Name);
+    ptnode_master:unregister_slaver(SupRef, Name);
 terminate_unregister_slaver(_) -> ok.
 
 
@@ -471,31 +472,36 @@ serv_init(State = #state{
                      server_module = ServModule,
                      server_args = ServArgs
                     }) ->
-    ?dlog("~p~n", [ProtoModule:peername(Socket)]),
+    ?DLOG("~p~n", [ProtoModule:peername(Socket)]),
     case ServModule:init(ServArgs) of
         {ok, ServState} ->
             NewState = State#state{server_state = ServState},
-            {ok, _} = timer:apply_interval(
-                        ?CLEAN_WAITERS_INTERVAL,
-                        gen_server, cast,
-                        [self(), '$clean_timeout_waiters']),
-            serv_report_alive(State),
+            start_clean_timeout_waiters_timer(),
+            start_report_alive_timer(State),
             {noreply, NewState};
         {stop, Reason} ->
             {stop, Reason, State}
     end.
 
 
-serv_report_alive(#state{
-                     role = master,
-                     master_name = MasterName,
-                     sup = MasterSupRef
-                    }) ->
+start_clean_timeout_waiters_timer() ->
+    {ok, _} = timer:apply_interval(
+                ?CLEAN_WAITERS_INTERVAL,
+                gen_server, cast,
+                [self(), ?MSG_CLEAN_TIMEOUT_WAITERS]).
+
+
+start_report_alive_timer(#state{
+                            role = master,
+                            slaver_name = Name,
+                            sup = MasterSupRef,
+                            status = ready
+                           }) ->
     {ok, _} = timer:apply_interval(
                 ?SERV_REPORT_ALIVE_INTERVAL,
-                ptnode_master_mgmt, serv_report_alive,
-                [MasterSupRef, MasterName, self()]);
-serv_report_alive(_) -> ok.
+                ptnode_master, serv_report_alive,
+                [MasterSupRef, Name, self()]);
+start_report_alive_timer(_) -> ok.
 
 
 serv_handle_cast(Req,
@@ -520,7 +526,7 @@ serv_handle_call(ReqId, Req, From,
                             server_module = ServModule,
                             server_state = ServState
                            }) ->
-    FromRef = {?b2a(?node_name(State)), ?b2a(From)},
+    FromRef = {?B2A(?NODE_NAME(State)), ?B2A(From)},
     case ServModule:handle_call(Req, FromRef, ServState) of
         {reply, Reply, NewServState} ->
             Cmd =
@@ -547,8 +553,8 @@ handle_data_forward(To, Data,
                                role = master,
                                sup = MasterSupRef
                               }) ->
-    case ptnode_master_mgmt:get_node_conn(MasterSupRef, To) of
-        Pid when is_pid(Pid) -> gen_server:cast(Pid, {'$send', Data});
+    case ptnode_master:get_node_conn(MasterSupRef, To) of
+        {ok, Pid} -> gen_server:cast(Pid, ?MSG_SEND_DATA(Data));
         _ -> do_nothing
     end,
     {noreply, State}.
@@ -565,9 +571,9 @@ handle_call_reply_request(ReqId, Data, Pid,
             NewWaiters = maps:put(ReqId, #waiter{
                                             from = Pid
                                            }, Waiters),
-            {reply, {ok, ?mark(ReqId)},
+            {reply, {ok, ?MARK(ReqId)},
              State#state{
-               req_id = ?next_req_id(ReqId),
+               req_id = ?NEXT_REQ_ID(ReqId),
                waiters = NewWaiters
               }};
         Err = {error, _} -> {stop, Err, Err, State}
@@ -586,38 +592,38 @@ handle_cast_noreply_request(Data,
 
 
 -spec(cast(pid(), term()) -> ok).
-cast(Ref, Req) -> gen_server:cast(Ref, {'$serv_cast', Req}).
+cast(Ref, Req) -> gen_server:cast(Ref, ?MSG_SERV_CAST(Req)).
 
 
 -spec(call(pid(), term()) -> term()).
-call(Ref, Req) -> gen_server:call(Ref, {'$serv_call', Req}).
+call(Ref, Req) -> gen_server:call(Ref, ?MSG_SERV_CALL(Req)).
 
 
 -spec(close_conn(pid()) -> ok).
-close_conn(Ref) -> gen_server:call(Ref, '$stop', 5 * 1000).
+close_conn(Ref) -> gen_server:call(Ref, ?MSG_CONN_STOP, 5 * 1000).
 
 
 -spec(reply_request(pid(), term(), integer() | infinity)
       -> {ok, mark()} | {error, any()}).
 reply_request(Ref, Req, Timeout) ->
-    gen_server:call(Ref, {'$reply_request', Req}, Timeout).
+    gen_server:call(Ref, ?MSG_REPLY_REQUEST(Req), Timeout).
 
 
 -spec(reply_request(pid(), atom() | binary(), term(), integer() | infinity)
       -> {ok, mark()} | {error, any()}).
 reply_request(Ref, To, Req, Timeout) when is_atom(To) ->
-    reply_request(Ref, ?a2b(To), Req, Timeout);
+    reply_request(Ref, ?A2B(To), Req, Timeout);
 reply_request(Ref, To, Req, Timeout) ->
-    gen_server:call(Ref, {'$reply_request', To, Req}, Timeout).
+    gen_server:call(Ref, ?MSG_REPLY_REQUEST(To, Req), Timeout).
 
 
 -spec(noreply_request(pid(), term()) -> ok).
 noreply_request(Ref, Req) ->
-    gen_server:cast(Ref, {'$noreply_request', Req}).
+    gen_server:cast(Ref, ?MSG_NOREPLY_REQUEST(Req)).
 
 
 -spec(noreply_request(pid(), atom() | binary(), term()) -> ok).
 noreply_request(Ref, To, Req) when is_atom(To) ->
-    noreply_request(Ref, ?a2b(To), Req);
+    noreply_request(Ref, ?A2B(To), Req);
 noreply_request(Ref, To, Req) ->
-    gen_server:cast(Ref, {'$noreply_request', To, Req}).
+    gen_server:cast(Ref, ?MSG_NOREPLY_REQUEST(To, Req)).

@@ -39,6 +39,7 @@
 -export([start/0, stop/0]).
 -export([start_node/3, stop_node/1]).
 -export([node_role/1,
+         get_node_sup_pid/1,
          call/3,
          cast/2
         ]).
@@ -111,63 +112,19 @@ get_node_sup_pid(Name) when is_atom(Name) ->
     end.
 
 
-get_node_serv(master, {Name, To}) ->
-    case get_node_sup_pid(Name) of
-        {ok, Pid} ->
-            case ptnode_master_mgmt:get_node_conn(Pid, To) of
-                master -> {error, master};
-                Err = {error, _} -> Err;
-                Serv -> {ok, Serv}
-            end;
-        Err = {error, _} -> Err
-    end;
-get_node_serv(slaver, {Name, _}) ->
-    case get_node_sup_pid(Name) of
-        {ok, Pid} -> ?get_slaver_conn(Pid);
-        Err = {error, _} -> Err
-    end.
-
-
 -spec(call(serv_ref(), term(), pos_integer() | infinity) -> term()).
-call(ServerRef = {Name, To}, Req, Timeout) ->
+call(ServerRef = {Name, _}, Req, Timeout) ->
     case node_role(Name) of
-        Err = {error, _} -> Err;
-        Role ->
-            case get_node_serv(Role, ServerRef) of
-                {ok, Serv} ->
-                    Res =
-                    if Role =:= master ->
-                           ptnode_conn_server:reply_request(
-                             Serv, Req, Timeout);
-                       Role =:= slaver ->
-                           ptnode_conn_server:reply_request(
-                             Serv, To, Req, Timeout)
-                    end,
-                    case Res of
-                        {ok, Mark} ->
-                            receive
-                                {Mark, Reply} -> Reply
-                            after Timeout -> {error, timeout}
-                            end;
-                        Err = {error, _} -> Err
-                    end;
-                Err = {error, _} -> Err
-            end
+        master -> ptnode_master:call(ServerRef, Req, Timeout);
+        slaver -> ptnode_slaver:call(ServerRef, Req, Timeout);
+        Err = {error, _} -> Err
     end.
 
 
 -spec(cast(serv_ref(), term()) -> ok | {error, any()}).
-cast(ServerRef = {Name, To}, Req) ->
+cast(ServerRef = {Name, _}, Req) ->
     case node_role(Name) of
-        Err = {error, _} -> Err;
-        Role ->
-            case get_node_serv(Role, ServerRef) of
-                {ok, Serv} ->
-                    if Role =:= master ->
-                           ptnode_conn_server:noreply_request(Serv, Req);
-                       Role =:= slaver ->
-                           ptnode_conn_server:noreply_request(Serv, To, Req)
-                    end;
-                Err = {error, _} -> Err
-            end
+        master -> ptnode_master:cast(ServerRef, Req);
+        slaver -> ptnode_slaver:cast(ServerRef, Req);
+        Err = {error, _} -> Err
     end.

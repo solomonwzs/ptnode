@@ -35,7 +35,7 @@ wrap_register(Name, Cookie)
 
 
 wrap_register_res(Name) when is_atom(Name) ->
-    wrap_register_res(?a2b(Name));
+    wrap_register_res(?A2B(Name));
 wrap_register_res(Name) ->
     NameLen = size(Name),
     ?PROTO_P_REG_RES(NameLen, Name).
@@ -46,7 +46,7 @@ wrap_heartbeat() ->
 
 
 wrap_noreply_request(To, Req) when is_atom(To) ->
-    wrap_noreply_request(?a2b(To), Req);
+    wrap_noreply_request(?A2B(To), Req);
 wrap_noreply_request(To, Req) ->
     B = term_to_binary(Req),
     ToLen = size(To),
@@ -60,7 +60,7 @@ wrap_noreply_request_binary(B) ->
     ?PROTO_P_MS_NOREPLY_REQUEST(BLen, B).
 
 wrap_noreply_request_binary(To, B) when is_atom(To) ->
-    wrap_noreply_request_binary(?a2b(To), B);
+    wrap_noreply_request_binary(?A2B(To), B);
 wrap_noreply_request_binary(To, B) ->
     ToLen = size(To),
     BLen = size(B),
@@ -74,7 +74,7 @@ wrap_noreply_request(Req) ->
 
 
 wrap_reply_request_binary(ReqId, From, B) when is_atom(From) ->
-    wrap_reply_request_binary(ReqId, ?a2b(From), B);
+    wrap_reply_request_binary(ReqId, ?A2B(From), B);
 wrap_reply_request_binary(ReqId, From, B) ->
     FromLen = size(From),
     BLen = size(B),
@@ -82,7 +82,7 @@ wrap_reply_request_binary(ReqId, From, B) ->
 
 
 wrap_reply_request(ReqId, From, Req) when is_atom(From) ->
-    wrap_reply_request(ReqId, ?a2b(From), Req);
+    wrap_reply_request(ReqId, ?A2B(From), Req);
 wrap_reply_request(ReqId, From, Req) ->
     FromLen = size(From),
     B = term_to_binary(Req),
@@ -90,9 +90,9 @@ wrap_reply_request(ReqId, From, Req) ->
     ?PROTO_P_MS_REPLY_REQUEST(ReqId, FromLen, From, BLen, B).
 
 wrap_reply_request(ReqId, From, To, Req) when is_atom(From) ->
-    wrap_reply_request(ReqId, ?a2b(From), To, Req);
+    wrap_reply_request(ReqId, ?A2B(From), To, Req);
 wrap_reply_request(ReqId, From, To, Req) when is_atom(To) ->
-    wrap_reply_request(ReqId, From, ?a2b(To), Req);
+    wrap_reply_request(ReqId, From, ?A2B(To), Req);
 wrap_reply_request(ReqId, From, To, Req) ->
     FromLen = size(From),
     ToLen = size(To),
@@ -107,7 +107,7 @@ wrap_reply_request_reply(ReqId, Reply) ->
     ?PROTO_P_MS_REPLY_REPLY(ReqId, BLen, B).
 
 wrap_reply_request_reply(ReqId, To, Reply) when is_atom(To) ->
-    wrap_reply_request_reply(ReqId, ?a2b(To), Reply);
+    wrap_reply_request_reply(ReqId, ?A2B(To), Reply);
 wrap_reply_request_reply(ReqId, To, Reply) ->
     ToLen = size(To),
     B = term_to_binary(Reply),

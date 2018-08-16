@@ -3,6 +3,7 @@
 -module(ptnode_master_mgmt).
 
 -include("ptnode.hrl").
+-include("ptnode_master_mgmt.hrl").
 
 -behaviour(gen_server).
 
@@ -15,12 +16,6 @@
          code_change/3,
          format_status/2,
          terminate/2
-        ]).
--export([register_slaver/3,
-         unregister_slaver/2,
-         get_node_conn/2,
-         get_nodes/1,
-         serv_report_alive/3
         ]).
 
 -record(slaver, {
@@ -46,14 +41,14 @@ init([MasterSupRef, NodeOpts]) ->
                 ?SERV_REPORT_ALIVE_INTERVAL,
                 gen_server, cast, [self(), '$check_serv_alive']),
     {ok, #state{
-            name = ?a2b(maps:get(name, NodeOpts)),
+            name = ?A2B(maps:get(name, NodeOpts)),
             cookie = maps:get(cookie, NodeOpts),
             master_sup = MasterSupRef,
             slavers = #{}
            }}.
 
 
-handle_call({'$register_slaver', Name, Pid}, _From,
+handle_call(?MSG_REGISTER_SLAVER(Name, Pid), _From,
             State = #state{
                        slavers = Slavers
                       }) ->
@@ -68,7 +63,7 @@ handle_call({'$register_slaver', Name, Pid}, _From,
             {reply, ok, State#state{slavers = NewSlavers}}
     end;
 
-handle_call({'$unregister_slaver', Name}, _From,
+handle_call(?MSG_UNREGISTER_SLAVER(Name), _From,
             State = #state{
                        slavers = Slavers
                       }) ->
@@ -79,37 +74,37 @@ handle_call({'$unregister_slaver', Name}, _From,
         error -> {reply, {error, "slaver not exist"}, State}
     end;
 
-handle_call('$get_all_slavers', _From, State) ->
+handle_call(?MSG_GET_ALL_SLAVERS, _From, State) ->
     {reply, State#state.slavers, State};
 
-handle_call({'$get_node_conn', Name}, _From,
+handle_call(?MSG_GET_NODE_CONN(Name), _From,
             State = #state{name = Name}) ->
-    {reply, master, State};
-handle_call({'$get_node_conn', Name}, _From,
+    {reply, {error, master}, State};
+handle_call(?MSG_GET_NODE_CONN(Name), _From,
             State = #state{slavers = Slavers}) ->
     case maps:find(Name, Slavers) of
         {ok, #slaver{
                 pid = Pid
-               }} -> {reply, Pid, State};
-        error -> {reply, {error, "slaver not exist"}, State}
+               }} -> {reply, {ok, Pid}, State};
+        error -> {reply, {error, slaver_not_exist}, State}
     end;
 
-handle_call('$nodes', _From,
+handle_call(?MSG_GET_NODES, _From,
             State = #state{
                        name = Name,
                        slavers = Slavers
                       }) ->
     SlaverList = maps:fold(
                    fun(K, _, Acc) ->
-                           [{?b2a(K), slaver} | Acc]
+                           [{?B2A(K), slaver} | Acc]
                    end, [], Slavers),
-    {reply, [{?b2a(Name), master} | SlaverList], State};
+    {reply, [{?B2A(Name), master} | SlaverList], State};
 
 handle_call(_Req, _From, State) ->
     {reply, undefined, State}.
 
 
-handle_cast({'$serv_alive', Name, Pid},
+handle_cast(?MSG_SERV_ALIVE(Name, Pid),
             State = #state{
                        slavers = Slavers
                       }) ->
@@ -124,7 +119,7 @@ handle_cast({'$serv_alive', Name, Pid},
             {noreply, State#state{slavers = NewSlavers}}
     end;
 
-handle_cast('$check_serv_alive',
+handle_cast(?MSG_CHECK_SERV_ALIVE,
             State = #state{
                        slavers = Slavers
                       }) ->
@@ -163,36 +158,3 @@ format_status(_Opt, [_PDict, _State]) ->
 
 terminate(_Reason, _State) ->
     ok.
-
-
-get_node_conn(MasterSupRef, Name) when is_atom(Name) ->
-    get_node_conn(MasterSupRef, ?a2b(Name));
-get_node_conn(MasterSupRef, Name) ->
-    {ok, Mgmt} = ?get_master_mgmt(MasterSupRef),
-    gen_server:call(Mgmt, {'$get_node_conn', Name}, 1000).
-
-
-get_nodes(MasterSupRef) ->
-    {ok, Mgmt} = ?get_master_mgmt(MasterSupRef),
-    gen_server:call(Mgmt, '$nodes', 1000).
-
-
-register_slaver(MasterSupRef, Name, Pid) ->
-    {ok, Mgmt} = ?get_master_mgmt(MasterSupRef),
-    gen_server:call(Mgmt, {'$register_slaver', Name, Pid}).
-
-
-unregister_slaver(MasterSupRef, Name) ->
-    case ?get_master_mgmt(MasterSupRef) of
-        {ok, Mgmt} ->
-            gen_server:call(Mgmt, {'$unregister_slaver', Name});
-        _ -> ok
-    end.
-
-
-serv_report_alive(MasterSupRef, Name, Pid) ->
-    case ?get_master_mgmt(MasterSupRef) of
-        {ok, Mgmt} ->
-            gen_server:cast(Mgmt, {'$serv_alive', Name, Pid});
-        _ -> ok
-    end.

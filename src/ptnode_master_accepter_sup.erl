@@ -38,7 +38,7 @@ init(A = [MasterSupRef, NodeOpts, ProtoOpts]) ->
                          N <- lists:seq(1, NumAcceptors)],
             {ok, {{one_for_one, 5, 10}, Accepters}};
         Err ->
-            ?dlog("~p~n", [Err]),
+            ?DLOG("~p~n", [Err]),
             timer:sleep(1000),
             init(A)
     end.

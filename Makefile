@@ -15,5 +15,5 @@ edoc:
 build_plt:
 	@$(REBAR) build-plt
 
-dialyzer:
+dialyzer: all
 	@$(REBAR) dialyze
