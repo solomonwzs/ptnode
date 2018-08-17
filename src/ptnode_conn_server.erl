@@ -263,7 +263,7 @@ handle_cast(?MSG_NOREPLY_REQUEST(Req),
                        role = master,
                        status = ready
                       }) ->
-    Cmd = ptnode_conn_proto:wrap_noreply_request(Req),
+    Cmd = ptnode_conn_proto:wrap_noreply_request(Req, external),
     handle_cast_noreply_request(Cmd, State);
 
 handle_cast(?MSG_NOREPLY_REQUEST(To, Req),
@@ -279,7 +279,15 @@ handle_cast(?MSG_NOREPLY_REQUEST(To, Req),
                        role = slaver,
                        status = ready
                       }) ->
-    Cmd = ptnode_conn_proto:wrap_noreply_request(To, Req),
+    Cmd = ptnode_conn_proto:wrap_noreply_request(To, Req, external),
+    handle_cast_noreply_request(Cmd, State);
+
+handle_cast(?MSG_NOREPLY_REQUEST_I(Req),
+           State = #state{
+                      role = master,
+                      status = ready
+                     }) ->
+    Cmd = ptnode_conn_proto:wrap_noreply_request(Req, internal),
     handle_cast_noreply_request(Cmd, State);
 
 handle_cast(Req, State) ->
@@ -356,7 +364,7 @@ handle_data(?PROTO_P_NOREPLY_REQUEST(ToLen, To, BLen, B),
                        role = master,
                        status = ready
                       }) ->
-    Data = ptnode_conn_proto:wrap_noreply_request_binary(B),
+    Data = ptnode_conn_proto:wrap_noreply_request_binary(B, external),
     handle_data_forward(To, Data, State);
 
 handle_data(?PROTO_P_NOREPLY_REQUEST(NameLen, Name, BLen, B),
@@ -630,6 +638,10 @@ handle_cast_noreply_request(Data,
 handle_call_i(Req, _From, State) ->
     ?DLOG("~p~n", [Req]),
     {reply, undefined, State}.
+
+
+handle_cast_i(Req, State) ->
+    {noreply, State}.
 
 
 -spec(cast(pid(), term()) -> ok).

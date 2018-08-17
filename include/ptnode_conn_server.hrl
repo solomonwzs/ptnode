@@ -32,4 +32,8 @@
 
 -define(MSG_NOREPLY_REQUEST(To, Req), {'$noreply_request', To, Req}).
 
+-define(MSG_NOREPLY_REQUEST_I(Req), {'$noreply_request_i', Req}).
+
+-define(MSG_NOREPLY_REQUEST_I(To, Req), {'$noreply_request_i', To, Req}).
+
 -endif.

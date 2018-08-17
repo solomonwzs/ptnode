@@ -11,13 +11,15 @@
 -define(PROTO_CMD_REG_RES,              16#01).
 -define(PROTO_CMD_HEARTBEAT,            16#02).
 -define(PROTO_CMD_NOREPLY_REQUEST,      16#03).
--define(PROTO_CMD_REPLY_REQUEST,        16#04).
--define(PROTO_CMD_REPLY_REQUEST_I,      16#05).
--define(PROTO_CMD_REPLY_REPLY,          16#06).
--define(PROTO_CMD_MS_NOREPLY_REQUEST,   16#07).
--define(PROTO_CMD_MS_REPLY_REQUEST,     16#08).
--define(PROTO_CMD_MS_REPLY_REQUEST_I,   16#09).
--define(PROTO_CMD_MS_REPLY_REPLY,       16#0a).
+-define(PROTO_CMD_NOREPLY_REQUEST_I,    16#04).
+-define(PROTO_CMD_REPLY_REQUEST,        16#05).
+-define(PROTO_CMD_REPLY_REQUEST_I,      16#06).
+-define(PROTO_CMD_REPLY_REPLY,          16#07).
+-define(PROTO_CMD_MS_NOREPLY_REQUEST,   16#08).
+-define(PROTO_CMD_MS_NOREPLY_REQUEST_I, 16#09).
+-define(PROTO_CMD_MS_REPLY_REQUEST,     16#0a).
+-define(PROTO_CMD_MS_REPLY_REQUEST_I,   16#0b).
+-define(PROTO_CMD_MS_REPLY_REPLY,       16#0c).
 
 %% register
 %%
@@ -75,6 +77,23 @@
 -define(PROTO_P_NOREPLY_REQUEST(ToLen, To, ReqLen, Req),
         <<?PROTO_VERSION:8/unsigned-little,
           ?PROTO_CMD_NOREPLY_REQUEST:8/unsigned-little,
+          ToLen:8/unsigned-little,
+          To:ToLen/binary,
+          ReqLen:16/unsigned-little,
+          Req:ReqLen/binary
+        >>).
+
+%% noreply-request (external term format, for internal)
+%%
+%% master <-- slaver
+%% +-----+-----+--------+-----+---------+-----+
+%% | ver | cmd | to_len | to  | req_len | req |
+%% +-----+-----+--------+-----+---------+-----+
+%% |  1  |  1  |    1   | var |    2    | var |
+%% +-----+-----+--------+-----+---------+-----+
+-define(PROTO_P_NOREPLY_REQUEST_I(ToLen, To, ReqLen, Req),
+        <<?PROTO_VERSION:8/unsigned-little,
+          ?PROTO_CMD_NOREPLY_REQUEST_I:8/unsigned-little,
           ToLen:8/unsigned-little,
           To:ToLen/binary,
           ReqLen:16/unsigned-little,
@@ -151,6 +170,21 @@
 -define(PROTO_P_MS_NOREPLY_REQUEST(ReqLen, Req),
         <<?PROTO_VERSION:8/unsigned-little,
           ?PROTO_CMD_MS_NOREPLY_REQUEST:8/unsigned-little,
+          ReqLen:16/unsigned-little,
+          Req:ReqLen/binary
+        >>).
+
+%% m-s noreply-request (external term format, for internal)
+%%
+%% master/slaver <-> slaver
+%% +-----+-----+---------+-----+
+%% | ver | cmd | req_len | req |
+%% +-----+-----+---------+-----+
+%% |  1  |  1  |    2    | var |
+%% +-----+-----+---------+-----+
+-define(PROTO_P_MS_NOREPLY_REQUEST_I(ReqLen, Req),
+        <<?PROTO_VERSION:8/unsigned-little,
+          ?PROTO_CMD_MS_NOREPLY_REQUEST_I:8/unsigned-little,
           ReqLen:16/unsigned-little,
           Req:ReqLen/binary
         >>).

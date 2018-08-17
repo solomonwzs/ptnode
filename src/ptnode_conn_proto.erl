@@ -8,10 +8,10 @@
 -export([wrap_register/2,
          wrap_register_res/1,
          wrap_heartbeat/0,
-         wrap_noreply_request/1,
          wrap_noreply_request/2,
-         wrap_noreply_request_binary/1,
+         wrap_noreply_request/3,
          wrap_noreply_request_binary/2,
+         wrap_noreply_request_binary/3,
          wrap_reply_request/4,
          wrap_reply_request/5,
          wrap_reply_request_binary/4,
@@ -45,32 +45,47 @@ wrap_heartbeat() ->
     ?PROTO_P_HEARTBEAT.
 
 
-wrap_noreply_request(To, Req) when is_atom(To) ->
-    wrap_noreply_request(?A2B(To), Req);
-wrap_noreply_request(To, Req) ->
+wrap_noreply_request(Req, I) ->
+    B = term_to_binary(Req),
+    BLen = size(B),
+    if I =:= external ->
+           ?PROTO_P_MS_NOREPLY_REQUEST(BLen, B);
+       I =:= internal ->
+           ?PROTO_P_MS_NOREPLY_REQUEST_I(BLen, B)
+    end.
+
+
+wrap_noreply_request(To, Req, I) when is_atom(To) ->
+    wrap_noreply_request(?A2B(To), Req, I);
+wrap_noreply_request(To, Req, I) ->
     B = term_to_binary(Req),
     ToLen = size(To),
     BLen = size(B),
-    ?PROTO_P_NOREPLY_REQUEST(ToLen, To, BLen, B).
+    if I =:= external ->
+           ?PROTO_P_NOREPLY_REQUEST(ToLen, To, BLen, B);
+       I =:= internal ->
+           ?PROTO_P_NOREPLY_REQUEST_I(ToLen, To, BLen, B)
+    end.
 
 
-
-wrap_noreply_request_binary(B) ->
+wrap_noreply_request_binary(B, I) ->
     BLen = size(B),
-    ?PROTO_P_MS_NOREPLY_REQUEST(BLen, B).
+    if I =:= external ->
+           ?PROTO_P_MS_NOREPLY_REQUEST(BLen, B);
+       I =:= internal ->
+           ?PROTO_P_MS_NOREPLY_REQUEST_I(BLen, B)
+    end.
 
-wrap_noreply_request_binary(To, B) when is_atom(To) ->
-    wrap_noreply_request_binary(?A2B(To), B);
-wrap_noreply_request_binary(To, B) ->
+wrap_noreply_request_binary(To, B, I) when is_atom(To) ->
+    wrap_noreply_request_binary(?A2B(To), B, I);
+wrap_noreply_request_binary(To, B, I) ->
     ToLen = size(To),
     BLen = size(B),
-    ?PROTO_P_NOREPLY_REQUEST(ToLen, To, BLen, B).
-
-
-wrap_noreply_request(Req) ->
-    B = term_to_binary(Req),
-    BLen = size(B),
-    ?PROTO_P_MS_NOREPLY_REQUEST(BLen, B).
+    if I =:= external ->
+           ?PROTO_P_NOREPLY_REQUEST(ToLen, To, BLen, B);
+       I =:= internal ->
+           ?PROTO_P_NOREPLY_REQUEST_I(ToLen, To, BLen, B)
+    end.
 
 
 wrap_reply_request_binary(ReqId, From, B, I) when is_atom(From) ->
