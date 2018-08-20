@@ -24,6 +24,8 @@
          close_conn/1,
          noreply_request/2,
          noreply_request/3,
+         noreply_request_i/2,
+         noreply_request_i/3,
          reply_request/3,
          reply_request/4
         ]).
@@ -385,6 +387,13 @@ handle_data(?PROTO_P_MS_NOREPLY_REQUEST(BLen, B),
         Term -> serv_handle_cast(Term, State)
     end;
 
+handle_data(?PROTO_P_MS_NOREPLY_REQUEST_I(BLen, B),
+            State = #state{status = ready}) ->
+    case catch binary_to_term(B) of
+        {'EXIT', _} -> {noreply, State};
+        Term -> handle_cast_i(Term, State)
+    end;
+
 handle_data(?PROTO_P_MS_REPLY_REQUEST(ReqId, FromLen, From, BLen, B),
             State = #state{status = ready}) ->
     case catch binary_to_term(B) of
@@ -641,6 +650,7 @@ handle_call_i(Req, _From, State) ->
 
 
 handle_cast_i(Req, State) ->
+    ?DLOG("~p~n", [Req]),
     {noreply, State}.
 
 
@@ -680,3 +690,15 @@ noreply_request(Ref, To, Req) when is_atom(To) ->
     noreply_request(Ref, ?A2B(To), Req);
 noreply_request(Ref, To, Req) ->
     gen_server:cast(Ref, ?MSG_NOREPLY_REQUEST(To, Req)).
+
+
+-spec(noreply_request_i(pid(), term()) -> ok).
+noreply_request_i(Ref, Req) ->
+    gen_server:cast(Ref, ?MSG_NOREPLY_REQUEST_I(Req)).
+
+
+-spec(noreply_request_i(pid(), atom() | binary(), term()) -> ok).
+noreply_request_i(Ref, To, Req) when is_atom(To) ->
+    noreply_request_i(Ref, ?A2B(To), Req);
+noreply_request_i(Ref, To, Req) ->
+    gen_server:cast(Ref, ?MSG_NOREPLY_REQUEST_I(To, Req)).

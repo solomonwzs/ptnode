@@ -13,7 +13,8 @@
          serv_report_alive/3
         ]).
 -export([call/3,
-         cast/2
+         cast/2,
+         cast_i/2
         ]).
 
 -define(CALL_MGMT(MasterSupRef, Message),
@@ -84,5 +85,13 @@ call(ServerRef, Req, Timeout) ->
 cast(ServerRef, Req) ->
     case get_node_conn(ServerRef) of
         {ok, Ref} -> ptnode_conn_server:noreply_request(Ref, Req);
+        Err = {error, _} -> Err
+    end.
+
+
+-spec(cast_i(ptnode:serv_ref(), term()) -> ok | {error, any()}).
+cast_i(ServerRef, Req) ->
+    case get_node_conn(ServerRef) of
+        {ok, Ref} -> ptnode_conn_server:noreply_request_i(Ref, Req);
         Err = {error, _} -> Err
     end.

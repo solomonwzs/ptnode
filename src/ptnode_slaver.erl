@@ -6,7 +6,8 @@
 
 -export([get_node_conn/1]).
 -export([call/3,
-         cast/2
+         cast/2,
+         cast_i/2
         ]).
 
 
@@ -31,5 +32,13 @@ call({Name, To}, Req, Timeout) ->
 cast({Name, To}, Req) ->
     case get_node_conn(Name) of
         {ok, Ref} -> ptnode_conn_server:noreply_request(Ref, To, Req);
+        Err = {error, _} -> Err
+    end.
+
+
+-spec(cast_i(ptnode:serv_ref(), term()) -> ok | {error, any()}).
+cast_i({Name, To}, Req) ->
+    case get_node_conn(Name) of
+        {ok, Ref} -> ptnode_conn_server:noreply_request_i(Ref, To, Req);
         Err = {error, _} -> Err
     end.
