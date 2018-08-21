@@ -14,17 +14,17 @@
 
 
 init(_) ->
-    ?dlog("init~n", []),
+    ?DLOG("init~n", []),
     {ok, #{}}.
 
 
 handle_call(Req, From, State) ->
-    ?dlog("from: ~p, req: ~p~n", [From, Req]),
+    ?DLOG("from: ~p, req: ~p~n", [From, Req]),
     {reply, {error, undefined}, State}.
 
 
 handle_cast(Req, State) ->
-    ?dlog("~p~n", [Req]),
+    ?DLOG("~p~n", [Req]),
     {noreply, State}.
 
 
