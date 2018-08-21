@@ -3,7 +3,7 @@
 -module(ptnode_master).
 
 -include("ptnode.hrl").
--include("ptnode_master_mgmt.hrl").
+-include("ptnode_server_message.hrl").
 
 -export([register_slaver/3,
          unregister_slaver/2,
@@ -14,22 +14,9 @@
         ]).
 -export([call/3,
          cast/2,
+         call_i/3,
          cast_i/2
         ]).
-
--define(CALL_MGMT(MasterSupRef, Message),
-        case ?GET_MASTER_MGMT(MasterSupRef) of
-            {ok, Mgmt} ->
-                gen_server:call(Mgmt, Message, 1000);
-            Err = {error, _} -> Err
-        end).
-
--define(CAST_MGMT(MasterSupRef, Message),
-        case ?GET_MASTER_MGMT(MasterSupRef) of
-            {ok, Mgmt} ->
-                gen_server:cast(Mgmt, Message);
-            Err = {error, _} -> Err
-        end).
 
 
 -spec(get_node_conn(atom() | pid(), atom() | bitstring())
@@ -75,7 +62,17 @@ serv_report_alive(MasterSupRef, Name, Pid) ->
 call(ServerRef, Req, Timeout) ->
     case get_node_conn(ServerRef) of
         {ok, Ref} ->
-            Res = ptnode_conn_server:reply_request(Ref, Req, Timeout),
+            Res = gen_server:call(Ref, ?MSG_REPLY_REQUEST(Req), Timeout),
+            ?RECEIVE_REPLY(Res, Timeout);
+        Err = {error, _} -> Err
+    end.
+
+
+-spec(call_i(ptnode:serv_ref(), term(), pos_integer() | infinity) -> term()).
+call_i(ServerRef, Req, Timeout) ->
+    case get_node_conn(ServerRef) of
+        {ok, Ref} ->
+            Res = gen_server:call(Ref, ?MSG_REPLY_REQUEST_I(Req), Timeout),
             ?RECEIVE_REPLY(Res, Timeout);
         Err = {error, _} -> Err
     end.
@@ -84,7 +81,7 @@ call(ServerRef, Req, Timeout) ->
 -spec(cast(ptnode:serv_ref(), term()) -> ok | {error, any()}).
 cast(ServerRef, Req) ->
     case get_node_conn(ServerRef) of
-        {ok, Ref} -> ptnode_conn_server:noreply_request(Ref, Req);
+        {ok, Ref} -> gen_server:cast(Ref, ?MSG_NOREPLY_REQUEST(Req));
         Err = {error, _} -> Err
     end.
 
@@ -92,6 +89,6 @@ cast(ServerRef, Req) ->
 -spec(cast_i(ptnode:serv_ref(), term()) -> ok | {error, any()}).
 cast_i(ServerRef, Req) ->
     case get_node_conn(ServerRef) of
-        {ok, Ref} -> ptnode_conn_server:noreply_request_i(Ref, Req);
+        {ok, Ref} -> gen_server:cast(Ref, ?MSG_NOREPLY_REQUEST_I(Req));
         Err = {error, _} -> Err
     end.

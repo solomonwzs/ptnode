@@ -1,7 +1,7 @@
 %% @author Solomon Ng <solomon.wzs@gmail.com>
 
--ifndef(__PTNODE_CONN_SERVER_HRL).
--define(__PTNODE_CONN_SERVER_HRL, 1).
+-ifndef(__PTNODE_SERVER_MESSAGE_HRL).
+-define(__PTNODE_SERVER_MESSAGE_HRL, 1).
 
 -define(MSG_REPLY_REQUEST(Req), {'$reply_request', Req}).
 
@@ -19,8 +19,8 @@
 
 -define(MSG_REG_TIMEOUT, '$reg_timeout').
 
--define(MSG_CONN_MASTER(Host, Port, ConnOpts, Timeout),
-        {'$conn_master', Host, Port, ConnOpts, Timeout}).
+-define(MSG_CONN_MASTER(Host, Port, Opts, Timeout),
+        {'$conn_master', Host, Port, Opts, Timeout}).
 
 -define(MSG_SERV_CAST(Req), {'$serv_cast', Req}).
 
@@ -35,5 +35,19 @@
 -define(MSG_NOREPLY_REQUEST_I(Req), {'$noreply_request_i', Req}).
 
 -define(MSG_NOREPLY_REQUEST_I(To, Req), {'$noreply_request_i', To, Req}).
+
+-define(MSG_REGISTER_SLAVER(Name, Pid), {'$register_slaver', Name, Pid}).
+
+-define(MSG_UNREGISTER_SLAVER(Name), {'$unregister_slaver', Name}).
+
+-define(MSG_GET_ALL_SLAVERS, '$get_all_slavers').
+
+-define(MSG_GET_NODE_CONN(Name), {'$get_node_conn', Name}).
+
+-define(MSG_GET_NODES, '$get_nodes').
+
+-define(MSG_SERV_ALIVE(Name, Pid), {'$ser_alive', Name, Pid}).
+
+-define(MSG_CHECK_SERV_ALIVE, '$check_serv_alive').
 
 -endif.

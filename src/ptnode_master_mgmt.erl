@@ -3,7 +3,7 @@
 -module(ptnode_master_mgmt).
 
 -include("ptnode.hrl").
--include("ptnode_master_mgmt.hrl").
+-include("ptnode_server_message.hrl").
 
 -behaviour(gen_server).
 

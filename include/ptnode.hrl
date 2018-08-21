@@ -46,4 +46,18 @@
             Err = {error, _} -> Err
         end).
 
+-define(CALL_MGMT(MasterSupRef, Message),
+        case ?GET_MASTER_MGMT(MasterSupRef) of
+            {ok, Mgmt} ->
+                gen_server:call(Mgmt, Message, 1000);
+            Err = {error, _} -> Err
+        end).
+
+-define(CAST_MGMT(MasterSupRef, Message),
+        case ?GET_MASTER_MGMT(MasterSupRef) of
+            {ok, Mgmt} ->
+                gen_server:cast(Mgmt, Message);
+            Err = {error, _} -> Err
+        end).
+
 -endif.
