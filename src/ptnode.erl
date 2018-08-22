@@ -40,9 +40,17 @@
 -export([start_node/3, stop_node/1]).
 -export([node_role/1,
          get_node_sup_pid/1,
+         get_nodes/1,
          call/3,
          cast/2
         ]).
+
+-define(ROLE_APPLY(Name, Func, Args),
+    case node_role(Name) of
+        master -> apply(ptnode_master, Func, Args);
+        slaver -> apply(ptnode_slaver, Func, Args);
+        __Err = {error, _} -> __Err
+    end).
 
 
 start() -> application:start(ptnode).
@@ -103,6 +111,7 @@ stop_node(Name) ->
     supervisor:delete_child(ptnode_sup, {'$node', Name}).
 
 
+-spec(get_node_sup_pid(atom()) -> {ok, pid()} | {error, any()}).
 get_node_sup_pid(Name) when is_atom(Name) ->
     ChildId = {'$node', Name},
     Children = supervisor:which_children(ptnode_sup),
@@ -114,17 +123,14 @@ get_node_sup_pid(Name) when is_atom(Name) ->
 
 -spec(call(serv_ref(), term(), pos_integer() | infinity) -> term()).
 call(ServerRef = {Name, _}, Req, Timeout) ->
-    case node_role(Name) of
-        master -> ptnode_master:call(ServerRef, Req, Timeout);
-        slaver -> ptnode_slaver:call(ServerRef, Req, Timeout);
-        Err = {error, _} -> Err
-    end.
+    ?ROLE_APPLY(Name, call, [ServerRef, Req, Timeout]).
 
 
 -spec(cast(serv_ref(), term()) -> ok | {error, any()}).
 cast(ServerRef = {Name, _}, Req) ->
-    case node_role(Name) of
-        master -> ptnode_master:cast(ServerRef, Req);
-        slaver -> ptnode_slaver:cast(ServerRef, Req);
-        Err = {error, _} -> Err
-    end.
+    ?ROLE_APPLY(Name, cast, [ServerRef, Req]).
+
+
+-spec(get_nodes(atom()) -> list() | {error, any()}).
+get_nodes(Name) ->
+    ?ROLE_APPLY(Name, get_nodes, [Name]).

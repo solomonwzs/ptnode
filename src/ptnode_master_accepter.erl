@@ -29,21 +29,23 @@ loop(MasterSupRef, ListenSocket,
 accept(MasterSupRef, ListenSocket,
        ProtoModule, AccepterOpts, HandshakeOpts) ->
     case ProtoModule:accept(ListenSocket, AccepterOpts) of
-        {ok, SslSocket} ->
-            handshake(MasterSupRef, SslSocket,
+        {ok, Socket} ->
+            handshake(MasterSupRef, Socket,
                       ProtoModule, HandshakeOpts);
         Err -> ?DLOG("~p~n", [Err])
     end.
 
 
-handshake(MasterSupRef, SslSocket,
+handshake(MasterSupRef, Socket0,
           ProtoModule, HandshakeOpts) ->
-    case ProtoModule:handshake(SslSocket, HandshakeOpts) of
-        {ok, Socket} ->
-            get_conn_sup(MasterSupRef, Socket, ProtoModule);
+    ?DLOG("~p~n", [ProtoModule:peername(Socket0)]),
+    case ProtoModule:handshake(Socket0, HandshakeOpts) of
+        {ok, Socket1} ->
+            ?DLOG("~p~n", [ProtoModule:peername(Socket1)]),
+            get_conn_sup(MasterSupRef, Socket1, ProtoModule);
         Err ->
             ?DLOG("~p~n", [Err]),
-            ProtoModule:close(SslSocket)
+            ProtoModule:close(Socket0)
     end.
 
 

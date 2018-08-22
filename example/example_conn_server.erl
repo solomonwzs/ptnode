@@ -9,6 +9,7 @@
 -export([init/1,
          handle_call/3,
          handle_cast/2,
+         handle_info/2,
          terminate/2
         ]).
 
@@ -25,6 +26,11 @@ handle_call(Req, From, State) ->
 
 handle_cast(Req, State) ->
     ?DLOG("~p~n", [Req]),
+    {noreply, State}.
+
+
+handle_info(Info, State) ->
+    ?DLOG("~p~n", [Info]),
     {noreply, State}.
 
 

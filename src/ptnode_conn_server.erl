@@ -67,6 +67,25 @@
            true -> Id + 1
         end).
 
+-define(SLAVER_NOREPLY_REQUEST_CMD(To, Req, State, I),
+        if To =:= State#state.master_name ->
+               ptnode_conn_proto:wrap_noreply_request(Req, I);
+           true ->
+               ptnode_conn_proto:wrap_noreply_request(To, Req, I)
+        end).
+
+-define(TERM_CAST(Func, B, State),
+    case catch binary_to_term(B) of
+        {'EXIT', _} -> {noreply, State};
+        __Term -> Func(__Term, State)
+    end).
+
+-define(TERM_CALL(Func, ReqId, B, From, State),
+    case catch binary_to_term(B) of
+        {'EXIT', _} -> {noreply, State};
+        __Term -> Func(ReqId, __Term, From, State)
+    end).
+
 -type mark() :: {pid(), integer()}.
 -export_type([mark/0]).
 
@@ -80,6 +99,10 @@
     {stop, Reason::any(), Reply::any(), NewServState::any()}.
 
 -callback handle_cast(Req::any(), ServState::any()) ->
+    {noreply, NewServState::any()} |
+    {stop, Reason::any(), NewServState::any()}.
+
+-callback handle_info(Info::any(), ServState::any()) ->
     {noreply, NewServState::any()} |
     {stop, Reason::any(), NewServState::any()}.
 
@@ -297,7 +320,7 @@ handle_cast(?MSG_NOREPLY_REQUEST(To, Req),
                        role = slaver,
                        status = ready
                       }) ->
-    Cmd = ptnode_conn_proto:wrap_noreply_request(To, Req, external),
+    Cmd = ?SLAVER_NOREPLY_REQUEST_CMD(To, Req, State, external),
     handle_cast_noreply_request(Cmd, State);
 
 handle_cast(?MSG_NOREPLY_REQUEST_I(Req),
@@ -318,7 +341,7 @@ handle_cast(?MSG_NOREPLY_REQUEST_I(To, Req),
                        role = slaver,
                        status = ready
                       }) ->
-    Cmd = ptnode_conn_proto:wrap_noreply_request(To, Req, internal),
+    Cmd = ?SLAVER_NOREPLY_REQUEST_CMD(To, Req, State, internal),
     handle_cast_noreply_request(Cmd, State);
 
 handle_cast(Req, State) ->
@@ -330,16 +353,26 @@ handle_cast(Req, State) ->
 handle_info(?MSG_CONN_STOP, State) ->
     {stop, normal, State};
 handle_info(Message, State = #state{
-                                protocol_module = ProtoModule
+                                socket = Socket,
+                                protocol_module = ProtoModule,
+                                server_module = ServModule,
+                                server_state = ServState
                                }) ->
-    case ProtoModule:parse_message(Message) of
+    case ProtoModule:parse_message(Socket, Message) of
         {ok, Data} ->
             handle_data(Data, State);
         {error, Reason} ->
             ?DLOG("close: ~p~n", [Reason]),
             {noreply, State};
         close ->
-            {stop, normal, State}
+            {stop, normal, State};
+        ignore ->
+            case ServModule:handle_info(Message, ServState) of
+                {noreply, NewServState} ->
+                    {noreply, State#state{server_state = NewServState}};
+                {stop, Reason, NewServState} ->
+                    {stop, Reason, State#state{server_state = NewServState}}
+            end
     end.
 
 
@@ -393,10 +426,26 @@ handle_data(?PROTO_P_REG_RES(NameLen, Name),
 handle_data(?PROTO_P_NOREPLY_REQUEST(ToLen, To, BLen, B),
             State = #state{
                        role = master,
+                       master_name = To,
+                       status = ready
+                      }) ->
+    ?TERM_CAST(serv_handle_cast, B, State);
+
+handle_data(?PROTO_P_NOREPLY_REQUEST(ToLen, To, BLen, B),
+            State = #state{
+                       role = master,
                        status = ready
                       }) ->
     Data = ptnode_conn_proto:wrap_noreply_request_binary(B, external),
     handle_data_forward(To, Data, State);
+
+handle_data(?PROTO_P_NOREPLY_REQUEST_I(ToLen, To, BLen, B),
+            State = #state{
+                       role = master,
+                       master_name = To,
+                       status = ready
+                      }) ->
+    ?TERM_CAST(handle_cast_i, B, State);
 
 handle_data(?PROTO_P_NOREPLY_REQUEST_I(ToLen, To, BLen, B),
             State = #state{
@@ -412,38 +461,23 @@ handle_data(?PROTO_P_NOREPLY_REQUEST(NameLen, Name, BLen, B),
                        slaver_name = Name,
                        status = ready
                       }) ->
-    case catch binary_to_term(B) of
-        {'EXIT', _} -> {noreply, State};
-        Term -> serv_handle_cast(Term, State)
-    end;
+    ?TERM_CAST(serv_handle_cast, B, State);
 
 handle_data(?PROTO_P_MS_NOREPLY_REQUEST(BLen, B),
             State = #state{status = ready}) ->
-    case catch binary_to_term(B) of
-        {'EXIT', _} -> {noreply, State};
-        Term -> serv_handle_cast(Term, State)
-    end;
+    ?TERM_CAST(serv_handle_cast, B, State);
 
 handle_data(?PROTO_P_MS_NOREPLY_REQUEST_I(BLen, B),
             State = #state{status = ready}) ->
-    case catch binary_to_term(B) of
-        {'EXIT', _} -> {noreply, State};
-        Term -> handle_cast_i(Term, State)
-    end;
+    ?TERM_CAST(handle_cast_i, B, State);
 
 handle_data(?PROTO_P_MS_REPLY_REQUEST(ReqId, FromLen, From, BLen, B),
             State = #state{status = ready}) ->
-    case catch binary_to_term(B) of
-        {'EXIT', _} -> {noreply, State};
-        Term -> serv_handle_call(ReqId, Term, From, State)
-    end;
+    ?TERM_CALL(serv_handle_call, ReqId, B, From, State);
 
 handle_data(?PROTO_P_MS_REPLY_REQUEST_I(ReqId, FromLen, From, BLen, B),
             State = #state{status = ready}) ->
-    case catch binary_to_term(B) of
-        {'EXIT', _} -> {noreply, State};
-        Term -> internal_handle_call(ReqId, Term, From, State)
-    end;
+    ?TERM_CALL(internal_handle_call, ReqId, B, From, State);
 
 handle_data(?PROTO_P_REPLY_REQUEST(
                ReqId, FromLen, From, ToLen, To, BLen, B),

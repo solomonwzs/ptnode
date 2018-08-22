@@ -34,8 +34,8 @@ get_nodes(Name) -> call_master_i(Name, ?MSG_GET_NODES, 1000).
 call({Name, To}, Req, Timeout) ->
     case get_node_conn(Name) of
         {ok, Ref} ->
-            Res = gen_server:call(Ref, ?MSG_REPLY_REQUEST(?B2A(To), Req),
-                                  Timeout),
+            Res = gen_server:call(
+                    Ref, ?MSG_REPLY_REQUEST(?A2B(To), Req), Timeout),
             ?RECEIVE_REPLY(Res, Timeout);
         Err = {error, _} -> Err
     end.

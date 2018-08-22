@@ -11,16 +11,16 @@
          handshake/2,
          listen/2,
          name/0,
-         parse_message/1,
+         parse_message/2,
          peername/1,
          send/2,
          setopts/2
         ]).
 
 -ifdef(OTP_RELEASE).
--define(ssl_handshake(Socket, Opts), ssl:handshake(Socket, Opts, infinity)).
+-define(SSL_HANDSHAKE(Socket, Opts), ssl:handshake(Socket, Opts, infinity)).
 -else.
--define(ssl_handshake(Socket, Opts), handshake0(Socket, Opts)).
+-define(SSL_HANDSHAKE(Socket, Opts), handshake0(Socket, Opts)).
 handshake0(Socket, _) ->
     case ssl:ssl_accept(Socket) of
         ok -> {ok, Socket};
@@ -45,7 +45,7 @@ connect(Host, Port, Options, Timeout) ->
 
 
 handshake(Socket, Opts) ->
-    ?ssl_handshake(Socket, Opts).
+    ?SSL_HANDSHAKE(Socket, Opts).
 
 
 close(Socket) ->
@@ -60,10 +60,10 @@ setopts(Socket, Opts) ->
     ssl:setopts(Socket, Opts).
 
 
-parse_message({ssl, _Socket, Data}) -> {ok, list_to_binary(Data)};
-parse_message({ssl_closed, _Socket}) -> close;
-parse_message({ssl_error, _Socket, Reason}) -> {error, Reason};
-parse_message(_) -> ignore.
+parse_message(Socket, {ssl, Socket, Data}) -> {ok, list_to_binary(Data)};
+parse_message(Socket, {ssl_closed, Socket}) -> close;
+parse_message(Socket, {ssl_error, Socket, Reason}) -> {error, Reason};
+parse_message(_, _) -> ignore.
 
 
 send(Socket, Data) ->

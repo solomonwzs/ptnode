@@ -2,12 +2,12 @@
 
 -module(ptnode_proto).
 
--type socket()::ssl:sslsocket().
+-type socket() :: ssl:sslsocket() | inet:socket().
 -export_type([socket/0]).
 
--type hostname()::string().
--type ip_address()::tuple().
--type host()::hostname() | ip_address().
+-type hostname() :: string().
+-type ip_address() :: tuple().
+-type host() :: hostname() | ip_address().
 -export_type([host/0]).
 
 -callback name() -> atom().
@@ -33,7 +33,7 @@
 -callback setopts(Socket::socket(), Options::any()) ->
     ok | {error, any()}.
 
--callback parse_message(Message::any()) ->
+-callback parse_message(Socket::socket(), Message::any()) ->
     {ok, Data::any()} |
     {error, Reason::any()} |
     ignore |
